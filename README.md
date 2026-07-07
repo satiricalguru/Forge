@@ -16,6 +16,7 @@
   <p>
     <a href="#-key-pillars">Key Pillars</a> •
     <a href="#-features">Features</a> •
+    <a href="#-screenshots">Screenshots</a> •
     <a href="#-quick-start">Quick Start</a> •
     <a href="#-architecture">Architecture</a>
   </p>
@@ -51,6 +52,15 @@ Forge uses the open-source **Open VSX Registry** instead of the proprietary Micr
 - **Agents Window:** A dedicated interface to launch, manage, and inspect autonomous AI coding agents operating on your codebase.
 - **React + Tailwind Workbench Integration:** Forge compiles React and scopes Tailwind CSS, making it easy to create beautiful, modern UI components directly inside the IDE layout.
 - **Code Streaming & Diffing:** Inline editing (Cmd+K) and Sidebar Chat (Cmd+L) stream model outputs token-by-token and render side-by-side diffs.
+
+---
+
+## 📸 Screenshots
+
+<div align="center">
+  <img src="./forge_icons/slice_of_void.png" alt="Forge Interface Overview" width="600" />
+  <p><em>The elegant, local-first user interface of Forge IDE.</em></p>
+</div>
 
 ---
 
