@@ -6,6 +6,13 @@
   ### **The Local-First, Privacy-Respecting AI IDE**
   Forge is an open-source IDE forked from VS Code and built on top of the Void editor codebase. It is designed from the ground up for developers who demand complete code privacy, offline capabilities, and zero telemetry.
 
+  <p align="center">
+    <a href="LICENSE.txt"><img src="https://img.shields.io/github/license/satiricalguru/Forge?style=flat-square&color=blue" alt="License" /></a>
+    <img src="https://img.shields.io/badge/privacy-100%25%20local-brightgreen?style=flat-square" alt="Privacy" />
+    <img src="https://img.shields.io/badge/telemetry-disabled-red?style=flat-square" alt="Telemetry" />
+    <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?style=flat-square" alt="Platform" />
+  </p>
+
   <p>
     <a href="#-key-pillars">Key Pillars</a> •
     <a href="#-features">Features</a> •
