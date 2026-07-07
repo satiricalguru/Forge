@@ -730,8 +730,8 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
 		// Handle Workspace events
 		this._register(this.workspacesManagementMainService.onDidDeleteUntitledWorkspace(e => this.onDidDeleteUntitledWorkspace(e)));
 
-		// Inject headers when requests are incoming
-		const urls = ['https://marketplace.visualstudio.com/*', 'https://*.vsassets.io/*'];
+		// Inject headers when requests are incoming (Open VSX only)
+		const urls = ['https://open-vsx.org/*'];
 		this._win.webContents.session.webRequest.onBeforeSendHeaders({ urls }, async (details, cb) => {
 			const headers = await this.getMarketplaceHeaders();
 
@@ -1050,6 +1050,10 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
 
 		// Load URL
 		this._win.loadURL(FileAccess.asBrowserUri(`vs/code/electron-sandbox/workbench/workbench${this.environmentMainService.isBuilt ? '' : '-dev'}.html`).toString(true));
+
+		if (configuration.isAgentsWindow) {
+			this._win.webContents.openDevTools();
+		}
 
 		// Remember that we did load
 		const wasLoaded = this.wasLoaded;

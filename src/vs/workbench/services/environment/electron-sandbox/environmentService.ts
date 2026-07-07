@@ -32,6 +32,7 @@ export interface INativeWorkbenchEnvironmentService extends IBrowserWorkbenchEnv
 		maximized?: boolean;
 		accessibilitySupport?: boolean;
 		isInitialStartup?: boolean;
+		isAgentsWindow?: boolean;
 		isCodeCaching?: boolean;
 		perfMarks: PerformanceMark[];
 	};
@@ -91,6 +92,7 @@ export class NativeWorkbenchEnvironmentService extends AbstractNativeEnvironment
 			accessibilitySupport: this.configuration.accessibilitySupport,
 			perfMarks: this.configuration.perfMarks,
 			isInitialStartup: this.configuration.isInitialStartup,
+			isAgentsWindow: this.configuration.isAgentsWindow,
 			isCodeCaching: typeof this.configuration.codeCachePath === 'string'
 		};
 	}

@@ -211,5 +211,44 @@ export type EventModelListOnSuccessParams<modelResponse> = Parameters<ModelListP
 export type EventModelListOnErrorParams<modelResponse> = Parameters<ModelListParams<modelResponse>['onError']>[0] & { requestId: string }
 
 
+// ----- Ollama Pull Model Types -----
+
+export type PullModelParams = {
+	modelName: string;
+	endpoint: string;
+	onProgress: (param: { percent: number; status: string }) => void;
+	onSuccess: () => void;
+	onError: (param: { error: string }) => void;
+};
+
+export type ServicePullModelParams = {
+	modelName: string;
+	onProgress: (param: { percent: number; status: string }) => void;
+	onSuccess: () => void;
+	onError: (param: { error: string }) => void;
+};
+
+export type MainPullModelParams = {
+	modelName: string;
+	endpoint: string;
+	requestId: string;
+};
+
+export type EventPullModelOnProgressParams = {
+	requestId: string;
+	percent: number;
+	status: string;
+};
+
+export type EventPullModelOnSuccessParams = {
+	requestId: string;
+};
+
+export type EventPullModelOnErrorParams = {
+	requestId: string;
+	error: string;
+};
+
+
 
 

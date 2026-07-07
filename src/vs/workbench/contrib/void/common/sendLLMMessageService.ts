@@ -1,9 +1,4 @@
-/*--------------------------------------------------------------------------------------
- *  Copyright 2025 Glass Devtools, Inc. All rights reserved.
- *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
- *--------------------------------------------------------------------------------------*/
-
-import { EventLLMMessageOnTextParams, EventLLMMessageOnErrorParams, EventLLMMessageOnFinalMessageParams, ServiceSendLLMMessageParams, MainSendLLMMessageParams, MainLLMMessageAbortParams, ServiceModelListParams, EventModelListOnSuccessParams, EventModelListOnErrorParams, MainModelListParams, OllamaModelResponse, OpenaiCompatibleModelResponse, } from './sendLLMMessageTypes.js';
+import { EventLLMMessageOnTextParams, EventLLMMessageOnErrorParams, EventLLMMessageOnFinalMessageParams, ServiceSendLLMMessageParams, MainSendLLMMessageParams, MainLLMMessageAbortParams, ServiceModelListParams, EventModelListOnSuccessParams, EventModelListOnErrorParams, MainModelListParams, OllamaModelResponse, OpenaiCompatibleModelResponse, ServicePullModelParams, EventPullModelOnProgressParams, EventPullModelOnSuccessParams, EventPullModelOnErrorParams, MainPullModelParams } from './sendLLMMessageTypes.js';
 
 import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
 import { registerSingleton, InstantiationType } from '../../../../platform/instantiation/common/extensions.js';
@@ -24,6 +19,7 @@ export interface ILLMMessageService {
 	abort: (requestId: string) => void;
 	ollamaList: (params: ServiceModelListParams<OllamaModelResponse>) => void;
 	openAICompatibleList: (params: ServiceModelListParams<OpenaiCompatibleModelResponse>) => void;
+	pullOllamaModel: (params: ServicePullModelParams) => string;
 }
 
 
@@ -56,6 +52,13 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			success: { [eventId: string]: ((params: EventModelListOnSuccessParams<any>) => void) },
 			error: { [eventId: string]: ((params: EventModelListOnErrorParams<any>) => void) },
 		}
+	}
+
+	// pull hooks
+	private readonly pullHooks = {
+		onProgress: {} as { [eventId: string]: ((params: EventPullModelOnProgressParams) => void) },
+		onSuccess: {} as { [eventId: string]: ((params: EventPullModelOnSuccessParams) => void) },
+		onError: {} as { [eventId: string]: ((params: EventPullModelOnErrorParams) => void) },
 	}
 
 	constructor(
@@ -98,6 +101,24 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			this.listHooks.openAICompat.error[e.requestId]?.(e)
 		}))
 
+		// pull model listeners
+		this._register((this.channel.listen('onProgress_pull_ollama') satisfies Event<EventPullModelOnProgressParams>)(e => {
+			this.pullHooks.onProgress[e.requestId]?.(e)
+		}))
+		this._register((this.channel.listen('onSuccess_pull_ollama') satisfies Event<EventPullModelOnSuccessParams>)(e => {
+			this.pullHooks.onSuccess[e.requestId]?.(e)
+			this._clearPullHooks(e.requestId)
+		}))
+		this._register((this.channel.listen('onError_pull_ollama') satisfies Event<EventPullModelOnErrorParams>)(e => {
+			this.pullHooks.onError[e.requestId]?.(e)
+			this._clearPullHooks(e.requestId)
+		}))
+	}
+
+	private _clearPullHooks(requestId: string) {
+		delete this.pullHooks.onProgress[requestId];
+		delete this.pullHooks.onSuccess[requestId];
+		delete this.pullHooks.onError[requestId];
 	}
 
 	sendLLMMessage(params: ServiceSendLLMMessageParams) {
@@ -180,6 +201,26 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 			settingsOfProvider,
 			requestId: requestId_,
 		} satisfies MainModelListParams<OpenaiCompatibleModelResponse>)
+	}
+
+	pullOllamaModel = (params: ServicePullModelParams): string => {
+		const { onProgress, onSuccess, onError } = params;
+
+		const { settingsOfProvider } = this.voidSettingsService.state;
+		const endpoint = settingsOfProvider.ollama?.endpoint || 'http://127.0.0.1:11434';
+
+		const requestId_ = generateUuid();
+		this.pullHooks.onProgress[requestId_] = onProgress;
+		this.pullHooks.onSuccess[requestId_] = onSuccess;
+		this.pullHooks.onError[requestId_] = onError;
+
+		this.channel.call('pullOllamaModel', {
+			modelName: params.modelName,
+			endpoint,
+			requestId: requestId_,
+		} satisfies MainPullModelParams);
+
+		return requestId_;
 	}
 
 	private _clearChannelHooks(requestId: string) {

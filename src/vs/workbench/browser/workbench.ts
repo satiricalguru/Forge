@@ -18,7 +18,7 @@ import { getSingletonServiceDescriptors } from '../../platform/instantiation/com
 import { Position, Parts, IWorkbenchLayoutService, positionToString } from '../services/layout/browser/layoutService.js';
 import { IStorageService, WillSaveStateReason, StorageScope, StorageTarget } from '../../platform/storage/common/storage.js';
 import { IConfigurationChangeEvent, IConfigurationService } from '../../platform/configuration/common/configuration.js';
-import { IInstantiationService } from '../../platform/instantiation/common/instantiation.js';
+import { IInstantiationService, ServicesAccessor } from '../../platform/instantiation/common/instantiation.js';
 import { ServiceCollection } from '../../platform/instantiation/common/serviceCollection.js';
 import { LifecyclePhase, ILifecycleService, WillShutdownEvent } from '../services/lifecycle/common/lifecycle.js';
 import { INotificationService } from '../../platform/notification/common/notification.js';
@@ -48,6 +48,13 @@ import { AccessibilityProgressSignalScheduler } from '../../platform/accessibili
 import { setProgressAcccessibilitySignalScheduler } from '../../base/browser/ui/progressbar/progressAccessibilitySignal.js';
 import { AccessibleViewRegistry } from '../../platform/accessibility/browser/accessibleViewRegistry.js';
 import { NotificationAccessibleView } from './parts/notifications/notificationAccessibleView.js';
+import { INativeWorkbenchEnvironmentService } from '../services/environment/electron-sandbox/environmentService.js';
+import { toDisposable } from '../../base/common/lifecycle.js';
+import { mountAgentsWindow } from '../contrib/void/browser/react/out/agents-window-tsx/index.js';
+import { IThemeService } from '../../platform/theme/common/themeService.js';
+import { getIconsStyleSheet } from '../../platform/theme/browser/iconsStyleSheet.js';
+import '../../base/browser/ui/codicons/codiconStyles.js';
+
 
 export interface IWorkbenchOptions {
 
@@ -138,6 +145,18 @@ export class Workbench extends Layout {
 				// as these possibly will use the default hover delegate
 				setHoverDelegateFactory((placement, enableInstantHover) => instantiationService.createInstance(WorkbenchHoverDelegate, placement, { instantHover: enableInstantHover }, {}));
 				setBaseLayerHoverDelegate(hoverService);
+
+				const environmentService = accessor.get(INativeWorkbenchEnvironmentService);
+				if (environmentService.window.isAgentsWindow) {
+					// Agents window: minimal bootstrap — do NOT start WorkbenchContributions
+					// (that would load the full VS Code sidebar/editor shell into this window).
+					// We only need lifecycle listeners + the React mount.
+					this.registerListeners(lifecycleService, storageService, configurationService, hostService, dialogService);
+
+					this.renderAgentsWindow(accessor);
+					lifecycleService.phase = LifecyclePhase.Restored;
+					return;
+				}
 
 				// Layout
 				this.initLayout(accessor);
@@ -442,5 +461,56 @@ export class Workbench extends Layout {
 				eventuallyPhaseScheduler.schedule();
 			})
 		);
+	}
+
+	private renderAgentsWindow(accessor: ServicesAccessor): void {
+		const platformClass = isWindows ? 'windows' : isLinux ? 'linux' : 'mac';
+		this.mainContainer.classList.add('monaco-workbench', platformClass, 'agents-window');
+		this.parent.appendChild(this.mainContainer);
+
+		// Apply full-height styles so the React root fills the window
+		Object.assign(this.mainContainer.style, {
+			width: '100%',
+			height: '100%',
+			overflow: 'hidden',
+			position: 'absolute',
+			top: '0',
+			left: '0',
+		});
+
+		// Inject codicon styles
+		try {
+			const themeService = accessor.get(IThemeService);
+			const iconsStyleSheet = this._register(getIconsStyleSheet(themeService));
+			const codiconStyleSheet = document.createElement('style');
+			codiconStyleSheet.id = 'codiconStyles';
+			codiconStyleSheet.textContent = iconsStyleSheet.getCSS();
+			document.head.appendChild(codiconStyleSheet);
+			this._register(iconsStyleSheet.onDidChange(() => {
+				codiconStyleSheet.textContent = iconsStyleSheet.getCSS();
+			}));
+		} catch (err) {
+			console.error('[AgentsWindow] Error loading codicon icons stylesheet:', err);
+		}
+
+		try {
+			// Pass accessor (ServicesAccessor) — NOT instantiationService
+			const mountResult = mountAgentsWindow(this.mainContainer, accessor);
+			if (mountResult && typeof mountResult.dispose === 'function') {
+				this._register(toDisposable(() => mountResult.dispose()));
+			}
+		} catch (err: any) {
+			console.error('[AgentsWindow] Error during mount:', err);
+			const errDiv = document.createElement('div');
+			errDiv.style.color = '#ef4444';
+			errDiv.style.padding = '20px';
+			errDiv.style.fontFamily = 'monospace';
+			errDiv.style.whiteSpace = 'pre-wrap';
+			errDiv.style.background = '#18181c';
+			errDiv.style.height = '100%';
+			errDiv.style.overflow = 'auto';
+			errDiv.innerText = `[AgentsWindow Mount Error]\n${err?.stack || err?.message || err}`;
+			this.mainContainer.appendChild(errDiv);
+		}
 	}
 }

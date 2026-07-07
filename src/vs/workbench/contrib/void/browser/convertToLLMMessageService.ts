@@ -18,6 +18,7 @@ import { URI } from '../../../../base/common/uri.js';
 import { EndOfLinePreference } from '../../../../editor/common/model.js';
 import { ToolName } from '../common/toolsServiceTypes.js';
 import { IMCPService } from '../common/mcpService.js';
+import { ISkillsService } from '../common/skillsService.js';
 
 export const EMPTY_MESSAGE = '(empty message)'
 
@@ -506,7 +507,7 @@ const prepareMessages = (params: {
 	const specialFormat = params.specialToolFormat // this is just for ts stupidness
 
 	// if need to convert to gemini style of messaes, do that (treat as anthropic style, then convert to gemini style)
-	if (params.providerName === 'gemini' || specialFormat === 'gemini-style') {
+	if (specialFormat === 'gemini-style') {
 		const res = prepareOpenAIOrAnthropicMessages({ ...params, specialToolFormat: specialFormat === 'gemini-style' ? 'anthropic-style' : undefined })
 		const messages = res.messages as AnthropicLLMChatMessage[]
 		const messages2 = prepareGeminiMessages(messages)
@@ -541,6 +542,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		@IVoidSettingsService private readonly voidSettingsService: IVoidSettingsService,
 		@IVoidModelService private readonly voidModelService: IVoidModelService,
 		@IMCPService private readonly mcpService: IMCPService,
+		@ISkillsService private readonly skillsService: ISkillsService,
 	) {
 		super()
 	}
@@ -649,7 +651,23 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const modelSelectionOptions = this.voidSettingsService.state.optionsOfModelSelection[featureName][modelSelection.providerName]?.[modelSelection.modelName]
 
 		// Get combined AI instructions
-		const aiInstructions = this._getCombinedAIInstructions();
+		let aiInstructions = this._getCombinedAIInstructions();
+
+		// Match skills and inject them!
+		let lastUserMessage = '';
+		for (let i = simpleMessages.length - 1; i >= 0; i--) {
+			if (simpleMessages[i].role === 'user') {
+				lastUserMessage = simpleMessages[i].content;
+				break;
+			}
+		}
+		const matchedSkills = this.skillsService.matchSkillsSync(lastUserMessage);
+		if (matchedSkills.length > 0) {
+			const skillsPrompt = '\n\n=== ACTIVE SPECIALIZED SKILL(S) ===\n' +
+				matchedSkills.map(skill => `[Skill: ${skill.name}]\n${skill.body}`).join('\n\n') +
+				'\n===================================\n';
+			aiInstructions = aiInstructions ? `${aiInstructions}\n${skillsPrompt}` : skillsPrompt;
+		}
 
 		const isReasoningEnabled = getIsReasoningEnabledState(featureName, providerName, modelName, modelSelectionOptions, overridesOfModel)
 		const reservedOutputTokenSpace = getReservedOutputTokenSpace(providerName, modelName, { isReasoningEnabled, overridesOfModel })
@@ -660,7 +678,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			aiInstructions,
 			supportsSystemMessage,
 			specialToolFormat,
-			supportsAnthropicReasoning: providerName === 'anthropic',
+			supportsAnthropicReasoning: specialToolFormat === 'anthropic-style',
 			contextWindow,
 			reservedOutputTokenSpace,
 			providerName,
@@ -686,7 +704,26 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 		const modelSelectionOptions = this.voidSettingsService.state.optionsOfModelSelection['Chat'][modelSelection.providerName]?.[modelSelection.modelName]
 
 		// Get combined AI instructions
-		const aiInstructions = this._getCombinedAIInstructions();
+		let aiInstructions = this._getCombinedAIInstructions();
+
+		// Match skills and inject them!
+		let lastUserMessage = '';
+		for (let i = chatMessages.length - 1; i >= 0; i--) {
+			const msg = chatMessages[i];
+			if (msg.role === 'user') {
+				lastUserMessage = msg.content;
+				break;
+			}
+		}
+		const workspacePaths = this.workspaceContextService.getWorkspace().folders.map(f => f.uri.fsPath);
+		const matchedSkills = await this.skillsService.matchSkills(lastUserMessage, workspacePaths);
+		if (matchedSkills.length > 0) {
+			const skillsPrompt = '\n\n=== ACTIVE SPECIALIZED SKILL(S) ===\n' +
+				matchedSkills.map(skill => `[Skill: ${skill.name}]\n${skill.body}`).join('\n\n') +
+				'\n===================================\n';
+			aiInstructions = aiInstructions ? `${aiInstructions}\n${skillsPrompt}` : skillsPrompt;
+		}
+
 		const isReasoningEnabled = getIsReasoningEnabledState('Chat', providerName, modelName, modelSelectionOptions, overridesOfModel)
 		const reservedOutputTokenSpace = getReservedOutputTokenSpace(providerName, modelName, { isReasoningEnabled, overridesOfModel })
 		const llmMessages = this._chatMessagesToSimpleMessages(chatMessages)
@@ -697,7 +734,7 @@ class ConvertToLLMMessageService extends Disposable implements IConvertToLLMMess
 			aiInstructions,
 			supportsSystemMessage,
 			specialToolFormat,
-			supportsAnthropicReasoning: providerName === 'anthropic',
+			supportsAnthropicReasoning: specialToolFormat === 'anthropic-style',
 			contextWindow,
 			reservedOutputTokenSpace,
 			providerName,

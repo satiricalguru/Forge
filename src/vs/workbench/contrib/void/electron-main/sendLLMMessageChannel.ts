@@ -8,9 +8,8 @@
 
 import { IServerChannel } from '../../../../base/parts/ipc/common/ipc.js';
 import { Emitter, Event } from '../../../../base/common/event.js';
-import { EventLLMMessageOnTextParams, EventLLMMessageOnErrorParams, EventLLMMessageOnFinalMessageParams, MainSendLLMMessageParams, AbortRef, SendLLMMessageParams, MainLLMMessageAbortParams, ModelListParams, EventModelListOnSuccessParams, EventModelListOnErrorParams, OllamaModelResponse, OpenaiCompatibleModelResponse, MainModelListParams, } from '../common/sendLLMMessageTypes.js';
+import { EventLLMMessageOnTextParams, EventLLMMessageOnErrorParams, EventLLMMessageOnFinalMessageParams, MainSendLLMMessageParams, AbortRef, SendLLMMessageParams, MainLLMMessageAbortParams, ModelListParams, EventModelListOnSuccessParams, EventModelListOnErrorParams, OllamaModelResponse, OpenaiCompatibleModelResponse, MainModelListParams, MainPullModelParams, EventPullModelOnProgressParams, EventPullModelOnSuccessParams, EventPullModelOnErrorParams } from '../common/sendLLMMessageTypes.js';
 import { sendLLMMessage } from './llmMessage/sendLLMMessage.js'
-import { IMetricsService } from '../common/metricsService.js';
 import { sendLLMMessageToProviderImplementation } from './llmMessage/sendLLMMessage.impl.js';
 
 // NODE IMPLEMENTATION - calls actual sendLLMMessage() and returns listeners to it
@@ -45,10 +44,15 @@ export class LLMMessageChannel implements IServerChannel {
 		}
 	}
 
+	// pull
+	private readonly pullEmitters = {
+		onProgress: new Emitter<EventPullModelOnProgressParams>(),
+		onSuccess: new Emitter<EventPullModelOnSuccessParams>(),
+		onError: new Emitter<EventPullModelOnErrorParams>(),
+	}
+
 	// stupidly, channels can't take in @IService
-	constructor(
-		private readonly metricsService: IMetricsService,
-	) { }
+	constructor() { }
 
 	// browser uses this to listen for changes
 	listen(_: unknown, event: string): Event<any> {
@@ -61,6 +65,10 @@ export class LLMMessageChannel implements IServerChannel {
 		else if (event === 'onError_list_ollama') return this.listEmitters.ollama.error.event;
 		else if (event === 'onSuccess_list_openAICompatible') return this.listEmitters.openaiCompat.success.event;
 		else if (event === 'onError_list_openAICompatible') return this.listEmitters.openaiCompat.error.event;
+		// pull
+		else if (event === 'onProgress_pull_ollama') return this.pullEmitters.onProgress.event;
+		else if (event === 'onSuccess_pull_ollama') return this.pullEmitters.onSuccess.event;
+		else if (event === 'onError_pull_ollama') return this.pullEmitters.onError.event;
 
 		else throw new Error(`Event not found: ${event}`);
 	}
@@ -79,6 +87,9 @@ export class LLMMessageChannel implements IServerChannel {
 			}
 			else if (command === 'openAICompatibleList') {
 				this._callOpenAICompatibleList(params)
+			}
+			else if (command === 'pullOllamaModel') {
+				this._callPullOllamaModel(params)
 			}
 			else {
 				throw new Error(`Void sendLLM: command "${command}" not recognized.`)
@@ -110,7 +121,7 @@ export class LLMMessageChannel implements IServerChannel {
 			},
 			abortRef: this._infoOfRunningRequest[requestId].abortRef,
 		}
-		const p = sendLLMMessage(mainThreadParams, this.metricsService);
+		const p = sendLLMMessage(mainThreadParams);
 		this._infoOfRunningRequest[requestId].waitForSend = p
 	}
 
@@ -149,8 +160,63 @@ export class LLMMessageChannel implements IServerChannel {
 		sendLLMMessageToProviderImplementation[providerName].list(mainThreadParams)
 	}
 
+	private async _callPullOllamaModel(params: MainPullModelParams) {
+		const { modelName, endpoint, requestId } = params;
+		try {
+			const res = await fetch(`${endpoint}/api/pull`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ name: modelName, stream: true }),
+			});
 
+			if (!res.ok) {
+				this.pullEmitters.onError.fire({ requestId, error: `HTTP error! status: ${res.status}` });
+				return;
+			}
 
+			const reader = res.body?.getReader();
+			if (!reader) {
+				this.pullEmitters.onError.fire({ requestId, error: 'ReadableStream not supported' });
+				return;
+			}
 
+			const decoder = new TextDecoder();
+			let buffer = '';
+
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+
+				buffer += decoder.decode(value, { stream: true });
+				const lines = buffer.split('\n');
+				buffer = lines.pop() || '';
+
+				for (const line of lines) {
+					const trimmed = line.trim();
+					if (!trimmed) continue;
+
+					try {
+						const json = JSON.parse(trimmed);
+						if (json.error) {
+							this.pullEmitters.onError.fire({ requestId, error: json.error });
+							return;
+						}
+						let percent = 0;
+						if (json.total && json.completed) {
+							percent = Math.round((json.completed / json.total) * 100);
+						}
+						const status = json.status || 'pulling';
+						this.pullEmitters.onProgress.fire({ requestId, percent, status });
+					} catch (e) {
+						// ignore parse errors on partial chunks
+					}
+				}
+			}
+
+			this.pullEmitters.onSuccess.fire({ requestId });
+		} catch (error) {
+			this.pullEmitters.onError.fire({ requestId, error: String(error) });
+		}
+	}
 
 }

@@ -92,10 +92,17 @@
 	}
 }
 
-.input {
-	@apply bg-vscode-input-bg text-vscode-input-fg border-vscode-input-border focus:outline-vscode-focus-border;
+/* Codicon base styling for the Agents window — provides font-family: codicon so that
+   the glyph ::before content (injected by iconsStyleSheet.getCSS()) renders as distinct
+   icons rather than tofu. The @font-face is loaded separately via codiconStyles.js. */
+.codicon[class*='codicon-'] {
+	font: normal normal normal 16px/1 codicon;
+	display: inline-block;
+	text-align: center;
+	text-transform: none;
+	text-rendering: auto;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	user-select: none;
+	-webkit-user-select: none;
 }
-
-.dropdown {
-	@apply bg-vscode-dropdown-bg text-vscode-dropdown-foreground border-vscode-dropdown-border focus:outline-vscode-focus-border;
-} */

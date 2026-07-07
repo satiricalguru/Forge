@@ -31,6 +31,30 @@ export interface IVoidSCMService {
 	 * @param path Path to the git repository
 	 */
 	gitLog(path: string): Promise<string>
+	/**
+	 * Get git status --porcelain
+	 */
+	gitStatus(path: string): Promise<{ file: string; status: string }[]>
+	/**
+	 * Get unified diff for a file
+	 */
+	gitDiff(path: string, file: string): Promise<string>
+	/**
+	 * Discard changes in a file, or all files
+	 */
+	gitDiscard(path: string, file?: string): Promise<void>
+	/**
+	 * Add file to git index
+	 */
+	gitAdd(path: string, file: string): Promise<void>
+	/**
+	 * Commit with message
+	 */
+	gitCommit(path: string, message: string): Promise<void>
+	/**
+	 * Get HEAD version of a file as a temporary file path
+	 */
+	gitGetOriginalFile(path: string, file: string): Promise<string>
 }
 
 export const IVoidSCMService = createDecorator<IVoidSCMService>('voidSCMService')

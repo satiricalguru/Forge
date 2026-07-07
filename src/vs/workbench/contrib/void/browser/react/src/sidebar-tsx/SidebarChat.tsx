@@ -3121,30 +3121,32 @@ export const SidebarChat = () => {
 	</div>
 
 	const landingPageInput = <div>
-		<div className='pt-8'>
+		<div className='pt-4 pb-2'>
 			{inputChatArea}
 		</div>
 	</div>
 
 	const landingPageContent = <div
 		ref={sidebarRef}
-		className='w-full h-full max-h-full flex flex-col overflow-auto px-4'
+		className='w-full h-full max-h-full flex flex-col overflow-hidden px-4 justify-between'
 	>
+		<div className='flex-grow overflow-x-hidden overflow-y-auto'>
+			{Object.keys(chatThreadsState.allThreads).length > 1 ? // show if there are threads
+				<ErrorBoundary>
+					<div className='pt-8 mb-2 text-void-fg-3 text-root select-none pointer-events-none'>Previous Threads</div>
+					<PastThreadsList />
+				</ErrorBoundary>
+				:
+				<ErrorBoundary>
+					<div className='pt-8 mb-2 text-void-fg-3 text-root select-none pointer-events-none'>Suggestions</div>
+					{initiallySuggestedPromptsHTML}
+				</ErrorBoundary>
+			}
+		</div>
+
 		<ErrorBoundary>
 			{landingPageInput}
 		</ErrorBoundary>
-
-		{Object.keys(chatThreadsState.allThreads).length > 1 ? // show if there are threads
-			<ErrorBoundary>
-				<div className='pt-8 mb-2 text-void-fg-3 text-root select-none pointer-events-none'>Previous Threads</div>
-				<PastThreadsList />
-			</ErrorBoundary>
-			:
-			<ErrorBoundary>
-				<div className='pt-8 mb-2 text-void-fg-3 text-root select-none pointer-events-none'>Suggestions</div>
-				{initiallySuggestedPromptsHTML}
-			</ErrorBoundary>
-		}
 	</div>
 
 

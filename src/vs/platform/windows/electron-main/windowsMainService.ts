@@ -82,6 +82,7 @@ interface IOpenBrowserWindowOptions {
 	readonly emptyWindowBackupInfo?: IEmptyWindowBackupInfo;
 	readonly forceProfile?: string;
 	readonly forceTempProfile?: boolean;
+	readonly isAgentsWindow?: boolean;
 }
 
 interface IPathResolveOptions {
@@ -277,6 +278,50 @@ export class WindowsMainService extends Disposable implements IWindowsMainServic
 		const forceNewWindow = !forceReuseWindow;
 
 		return this.open({ ...openConfig, cli, forceEmpty, forceNewWindow, forceReuseWindow, remoteAuthority, forceTempProfile: options?.forceTempProfile, forceProfile: options?.forceProfile });
+	}
+
+	async openAgentsWindow(openConfig: IOpenEmptyConfiguration): Promise<ICodeWindow> {
+		this.logService.info('[WindowsMainService] openAgentsWindow called.');
+		const existing = this.getWindows().find(w => w.config?.isAgentsWindow);
+		if (existing) {
+			this.logService.info('[WindowsMainService] openAgentsWindow: existing window found, focusing.');
+			existing.focus();
+			return existing;
+		}
+
+		// Reuse the workspace of the window that triggered this (so the Agents
+		// Window has real project context — folder list, FileTree, workspacePath).
+		// Falls back to an empty window when launched without an open workspace.
+		const sourceWindow = (openConfig.contextWindowId !== undefined ? this.getWindowById(openConfig.contextWindowId) : undefined) ?? this.getLastActiveWindow();
+		const workspace = sourceWindow?.openedWorkspace;
+
+		if (workspace) {
+			if (isWorkspaceIdentifier(workspace)) {
+				const [window] = await this.open({
+					...openConfig,
+					cli: { ...this.environmentMainService.args, agents: true },
+					urisToOpen: [{ workspaceUri: workspace.configPath }],
+					forceNewWindow: true,
+				});
+				return window;
+			} else if (isSingleFolderWorkspaceIdentifier(workspace)) {
+				const [window] = await this.open({
+					...openConfig,
+					cli: { ...this.environmentMainService.args, agents: true },
+					urisToOpen: [{ folderUri: workspace.uri }],
+					forceNewWindow: true,
+				});
+				return window;
+			}
+		}
+
+		const [window] = await this.open({
+			...openConfig,
+			cli: { ...this.environmentMainService.args, agents: true },
+			forceEmpty: true,
+			forceNewWindow: true
+		});
+		return window;
 	}
 
 	openExistingWindow(window: ICodeWindow, openConfig: IOpenConfiguration): void {
@@ -1503,6 +1548,7 @@ export class WindowsMainService extends Disposable implements IWindowsMainServic
 
 			product,
 			isInitialStartup: options.initialStartup,
+			isAgentsWindow: options.isAgentsWindow || options.cli?.agents,
 			perfMarks: getMarks(),
 			os: { release: release(), hostname: hostname(), arch: arch() },
 

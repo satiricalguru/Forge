@@ -23,6 +23,7 @@ import { MCPServer } from '../../../../common/mcpServiceTypes.js';
 import { useMCPServiceState } from '../util/services.js';
 import { OPT_OUT_KEY } from '../../../../common/storageKeys.js';
 import { StorageScope, StorageTarget } from '../../../../../../../platform/storage/common/storage.js';
+import { ProviderHealthDots } from './providerHealthDots.js';
 
 type Tab =
 	| 'models'
@@ -42,6 +43,19 @@ const ButtonLeftTextRightOption = ({ text, leftButton }: { text: string, leftBut
 			{text}
 		</span>
 	</div>
+}
+
+const ForgeProviderHealthStrip = () => {
+	const accessor = useAccessor()
+	const registry = accessor.get('ILocalProviderRegistry')
+	const service = accessor.get('ILocalProviderRegistryService')
+	return (
+		<div className='flex items-center gap-2 mb-4 text-void-fg-3 text-sm'>
+			<span>Provider status:</span>
+			<ProviderHealthDots registry={registry} service={service} />
+			<span className='text-xs opacity-70'>(green = reachable)</span>
+		</div>
+	)
 }
 
 // models
@@ -820,6 +834,86 @@ const FastApplyMethodDropdown = () => {
 }
 
 
+import { ILLMMessageService } from '../../../../../../../workbench/contrib/void/common/sendLLMMessageService.js'
+
+export const OllamaPullModelUI = () => {
+	const accessor = useAccessor();
+	const llmMessageService = accessor.get(ILLMMessageService);
+	const [modelName, setModelName] = useState('');
+	const [status, setStatus] = useState('');
+	const [progress, setProgress] = useState(-1);
+	const [error, setError] = useState('');
+
+	const handlePull = () => {
+		if (!modelName.trim()) return;
+		setStatus('Initializing pull...');
+		setProgress(0);
+		setError('');
+
+		llmMessageService.pullOllamaModel({
+			modelName: modelName.trim(),
+			onProgress: (p) => {
+				setProgress(p.percent);
+				setStatus(p.status);
+			},
+			onSuccess: () => {
+				setProgress(100);
+				setStatus('Success! Model pulled successfully.');
+				setTimeout(() => {
+					setProgress(-1);
+					setStatus('');
+					setModelName('');
+				}, 4000);
+			},
+			onError: (err) => {
+				setProgress(-1);
+				setStatus('');
+				setError(err.error || String(err));
+			}
+		});
+	};
+
+	return (
+		<div className="mt-3 p-3 bg-void-bg-2 border border-void-border-2 rounded flex flex-col gap-2 max-w-sm">
+			<div className="text-xs font-semibold text-void-fg-1">Or Pull a Model from Ollama library:</div>
+			<div className="flex gap-2">
+				<input
+					type="text"
+					value={modelName}
+					placeholder="e.g. qwen2.5-coder:3b"
+					onChange={(e) => setModelName(e.target.value)}
+					disabled={progress >= 0}
+					style={{ outline: 'none' }}
+					className="text-xs text-void-fg-1 bg-void-bg-1 border border-void-border-1 rounded px-2 py-1 flex-1 focus:border-blue-500"
+				/>
+				<button
+					type="button"
+					onClick={handlePull}
+					disabled={progress >= 0 || !modelName.trim()}
+					className="text-xs px-3 py-1 rounded font-semibold text-white bg-blue-600 hover:brightness-110 disabled:opacity-50"
+				>
+					{progress >= 0 ? 'Downloading...' : 'Pull'}
+				</button>
+			</div>
+			{progress >= 0 && (
+				<div className="flex flex-col gap-1 mt-1">
+					<div className="flex justify-between text-[10px] text-void-fg-3">
+						<span className="truncate max-w-[200px]">{status}</span>
+						<span>{progress}%</span>
+					</div>
+					<div className="w-full bg-void-bg-1 rounded-full h-1.5 overflow-hidden">
+						<div
+							className="bg-blue-500 h-full transition-all duration-300"
+							style={{ width: `${progress}%` }}
+						/>
+					</div>
+				</div>
+			)}
+			{error && <div className="text-xs text-red-500 mt-1">{error}</div>}
+		</div>
+	);
+};
+
 export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?: boolean }) => {
 	return <div className='prose-p:my-0 prose-ol:list-decimal prose-p:py-0 prose-ol:my-0 prose-ol:py-0 prose-span:my-0 prose-span:py-0 text-void-fg-3 text-sm list-decimal select-text'>
 		<div className=''><ChatMarkdownRender string={`Ollama Setup Instructions`} chatMessageLocation={undefined} /></div>
@@ -831,7 +925,10 @@ export const OllamaSetupInstructions = ({ sayWeAutoDetect }: { sayWeAutoDetect?:
 		>
 			<ChatMarkdownRender string={`3. Run \`ollama pull your_model\` to install a model.`} chatMessageLocation={undefined} />
 		</div>
-		{sayWeAutoDetect && <div className=' pl-6'><ChatMarkdownRender string={`Void automatically detects locally running models and enables them.`} chatMessageLocation={undefined} /></div>}
+		{sayWeAutoDetect && <div className=' pl-6'><ChatMarkdownRender string={`Forge automatically detects locally running models and enables them.`} chatMessageLocation={undefined} /></div>}
+		<div className="mt-2 pl-6">
+			<OllamaPullModelUI />
+		</div>
 	</div>
 }
 
@@ -1038,7 +1135,6 @@ export const Settings = () => {
 	const navItems: { tab: Tab; label: string }[] = [
 		{ tab: 'models', label: 'Models' },
 		{ tab: 'localProviders', label: 'Local Providers' },
-		{ tab: 'providers', label: 'Main Providers' },
 		{ tab: 'featureOptions', label: 'Feature Options' },
 		{ tab: 'general', label: 'General' },
 		{ tab: 'mcp', label: 'MCP' },
@@ -1189,23 +1285,15 @@ export const Settings = () => {
 							<div className={shouldShowTab('localProviders') ? `` : 'hidden'}>
 								<ErrorBoundary>
 									<h2 className={`text-3xl mb-2`}>Local Providers</h2>
-									<h3 className={`text-void-fg-3 mb-2`}>{`Void can access any model that you host locally. We automatically detect your local models by default.`}</h3>
+									<h3 className={`text-void-fg-3 mb-2`}>{`Forge connects only to locally-hosted model servers. We auto-detect Ollama, LM Studio, and vLLM when reachable.`}</h3>
+
+									<ForgeProviderHealthStrip />
 
 									<div className='opacity-80 mb-4'>
 										<OllamaSetupInstructions sayWeAutoDetect={true} />
 									</div>
 
 									<VoidProviderSettings providerNames={localProviderNames} />
-								</ErrorBoundary>
-							</div>
-
-							{/* Main Providers section */}
-							<div className={shouldShowTab('providers') ? `` : 'hidden'}>
-								<ErrorBoundary>
-									<h2 className={`text-3xl mb-2`}>Main Providers</h2>
-									<h3 className={`text-void-fg-3 mb-2`}>{`Void can access models from Anthropic, OpenAI, OpenRouter, and more.`}</h3>
-
-									<VoidProviderSettings providerNames={nonlocalProviderNames} />
 								</ErrorBoundary>
 							</div>
 
@@ -1466,29 +1554,6 @@ export const Settings = () => {
 									</ErrorBoundary>
 								</div>
 
-
-								{/* Metrics section */}
-								<div className='max-w-[600px]'>
-									<h2 className={`text-3xl mb-2`}>Metrics</h2>
-									<h4 className={`text-void-fg-3 mb-4`}>Very basic anonymous usage tracking helps us keep Void running smoothly. You may opt out below. Regardless of this setting, Void never sees your code, messages, or API keys.</h4>
-
-									<div className='my-2'>
-										{/* Disable All Metrics Switch */}
-										<ErrorBoundary>
-											<div className='flex items-center gap-x-2 my-2'>
-												<VoidSwitch
-													size='xs'
-													value={isOptedOut}
-													onChange={(newVal) => {
-														storageService.store(OPT_OUT_KEY, newVal, StorageScope.APPLICATION, StorageTarget.MACHINE)
-														metricsService.capture(`Set metrics opt-out to ${newVal}`, {}) // this only fires if it's enabled, so it's fine to have here
-													}}
-												/>
-												<span className='text-void-fg-3 text-xs pointer-events-none'>{'Opt-out (requires restart)'}</span>
-											</div>
-										</ErrorBoundary>
-									</div>
-								</div>
 
 								{/* AI Instructions section */}
 								<div className='max-w-[600px]'>

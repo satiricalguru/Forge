@@ -54,6 +54,10 @@ import { IExtensionManagementService } from '../../../../../../../platform/exten
 import { IMCPService } from '../../../../common/mcpService.js';
 import { IStorageService, StorageScope } from '../../../../../../../platform/storage/common/storage.js'
 import { OPT_OUT_KEY } from '../../../../common/storageKeys.js'
+import { ILocalProviderRegistry, ILocalProviderRegistryService } from '../../../../common/forgeProviderTypes.js'
+import { IHardwareService } from '../../../../common/hardwareService.js'
+import { ISkillsService } from '../../../../common/skillsService.js'
+import { ISessionRegistryService } from '../../../../common/sessionRegistryTypes.js'
 
 
 // normally to do this you'd use a useEffect that calls .onDidChangeState(), but useEffect mounts too late and misses initial state changes
@@ -86,7 +90,18 @@ const mcpListeners: Set<() => void> = new Set()
 
 // must call this before you can use any of the hooks below
 // this should only be called ONCE! this is the only place you don't need to dispose onDidChange. If you use state.onDidChange anywhere else, make sure to dispose it!
+let _servicesRegistered = false;
 export const _registerServices = (accessor: ServicesAccessor) => {
+
+	// Guard: if already registered (e.g. agents window closed and re-opened), skip re-registration
+	// to avoid double-firing all global event listeners.
+	if (_servicesRegistered) {
+		// Re-register the accessor so hooks can resolve services from the new window context,
+		// but skip adding duplicate event listeners to the global Sets.
+		_registerAccessor(accessor)
+		return [] as IDisposable[]
+	}
+	_servicesRegistered = true;
 
 	const disposables: IDisposable[] = []
 
@@ -183,6 +198,13 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 
 
 const getReactAccessor = (accessor: ServicesAccessor) => {
+	// safeGet swallows "service not registered" errors so the agents window can boot
+	// in contexts (e.g. the standalone agents BrowserWindow) that skip the full
+	// WorkbenchContributions bootstrap and therefore don't register every void service.
+	const safeGet = <T,>(id: any): T | null => {
+		try { return accessor.get<T>(id); } catch { return null; }
+	};
+
 	const reactAccessor = {
 		IModelService: accessor.get(IModelService),
 		IClipboardService: accessor.get(IClipboardService),
@@ -228,7 +250,13 @@ const getReactAccessor = (accessor: ServicesAccessor) => {
 		IExtensionTransferService: accessor.get(IExtensionTransferService),
 		IMCPService: accessor.get(IMCPService),
 
+		ILocalProviderRegistry: safeGet(ILocalProviderRegistry),
+		ILocalProviderRegistryService: safeGet(ILocalProviderRegistryService),
+
 		IStorageService: accessor.get(IStorageService),
+		IHardwareService: accessor.get(IHardwareService),
+		ISkillsService: accessor.get(ISkillsService),
+		ISessionRegistryService: safeGet(ISessionRegistryService),
 
 	} as const
 	return reactAccessor

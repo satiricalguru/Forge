@@ -22,9 +22,40 @@ const optionsEqual = (m1: ModelOption[], m2: ModelOption[]) => {
 	return true
 }
 
+import { IHardwareService } from '../../../../../../../workbench/contrib/void/common/hardwareService.js'
+
+function estimateModelSizeGb(modelName: string): number {
+	const lower = modelName.toLowerCase();
+	const match = lower.match(/(\d+(?:\.\d+)?)\s*b/);
+	if (match) {
+		const params = parseFloat(match[1]);
+		return params * 0.7; // ~0.7 GB VRAM/RAM required per billion parameters for Q4 quant + context
+	}
+	if (lower.includes('llama3') && !lower.includes('70b')) return 5.6;
+	if (lower.includes('qwen') && lower.includes('coder')) return 5.6;
+	if (lower.includes('deepseek-r1')) {
+		if (lower.includes('1.5b')) return 1.1;
+		if (lower.includes('7b') || lower.includes('8b')) return 5.6;
+		if (lower.includes('14b')) return 9.8;
+		if (lower.includes('32b')) return 22.4;
+		if (lower.includes('70b')) return 49.0;
+		return 5.6;
+	}
+	return 4.0;
+}
+
 const ModelSelectBox = ({ options, featureName, className }: { options: ModelOption[], featureName: FeatureName, className: string }) => {
 	const accessor = useAccessor()
 	const voidSettingsService = accessor.get('IVoidSettingsService')
+	const hardwareService = accessor.get('IHardwareService')
+
+	const [hardwareInfo, setHardwareInfo] = useState<any>(null)
+
+	useEffect(() => {
+		hardwareService.getHardwareInfo().then(info => {
+			setHardwareInfo(info);
+		}).catch(() => {});
+	}, [hardwareService]);
 
 	const selection = voidSettingsService.state.modelSelectionOfFeature[featureName]
 	const selectedOption = selection ? voidSettingsService.state._modelOptions.find(v => modelSelectionsEqual(v.selection, selection))! : options[0]
@@ -33,13 +64,33 @@ const ModelSelectBox = ({ options, featureName, className }: { options: ModelOpt
 		voidSettingsService.setModelSelectionOfFeature(featureName, newOption.selection)
 	}, [voidSettingsService, featureName])
 
+	const getModelFitStatus = useCallback((modelName: string) => {
+		if (!hardwareInfo) return '';
+		const sizeGb = estimateModelSizeGb(modelName);
+		const availableMemory = hardwareInfo.gpuVramGb || hardwareInfo.totalRamGb;
+		
+		if (availableMemory >= sizeGb * 1.5) {
+			return '● Comfortable';
+		} else if (availableMemory >= sizeGb) {
+			return '● Tight';
+		} else {
+			return '● OOM Risk';
+		}
+	}, [hardwareInfo]);
+
 	return <VoidCustomDropdownBox
 		options={options}
 		selectedOption={selectedOption}
 		onChangeOption={onChangeOption}
-		getOptionDisplayName={(option) => option.selection.modelName}
+		getOptionDisplayName={(option) => {
+			const fit = getModelFitStatus(option.selection.modelName);
+			return `${option.selection.modelName}${fit ? ` (${fit})` : ''}`;
+		}}
 		getOptionDropdownName={(option) => option.selection.modelName}
-		getOptionDropdownDetail={(option) => option.selection.providerName}
+		getOptionDropdownDetail={(option) => {
+			const fit = getModelFitStatus(option.selection.modelName);
+			return `${option.selection.providerName}${fit ? ` (${fit})` : ''}`;
+		}}
 		getOptionsEqual={(a, b) => optionsEqual([a], [b])}
 		className={className}
 		matchInputWidth={false}

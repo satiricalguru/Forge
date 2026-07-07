@@ -39,6 +39,11 @@ import { IDirectoryStrService } from '../common/directoryStrService.js';
 import { IFileService } from '../../../../platform/files/common/files.js';
 import { IMCPService } from '../common/mcpService.js';
 import { RawMCPToolCall } from '../common/mcpServiceTypes.js';
+import { ILocalProviderRegistryService } from '../common/forgeProviderTypes.js';
+import { getModelCapabilities } from '../common/modelCapabilities.js';
+import { IPathService } from '../../../services/path/common/pathService.js';
+import { VSBuffer } from '../../../../base/common/buffer.js';
+import { joinPath } from '../../../../base/common/resources.js';
 
 
 // related to retrying when LLM message has error
@@ -118,6 +123,8 @@ export type ThreadType = {
 
 	messages: ChatMessage[];
 	filesWithUserChanges: Set<string>;
+	agentType?: 'interactive' | 'background';
+	isAuto?: boolean;
 
 	// this doesn't need to go in a state object, but feels right
 	state: {
@@ -205,13 +212,15 @@ export type ThreadStreamState = {
 	}
 }
 
-const newThreadObject = () => {
+const newThreadObject = (opts?: { agentType?: 'interactive' | 'background'; isAuto?: boolean }) => {
 	const now = new Date().toISOString()
 	return {
 		id: generateUuid(),
 		createdAt: now,
 		lastModified: now,
 		messages: [],
+		agentType: opts?.agentType ?? 'interactive',
+		isAuto: opts?.isAuto ?? false,
 		state: {
 			currCheckpointIdx: null,
 			stagingSelections: [],
@@ -237,7 +246,7 @@ export interface IChatThreadService {
 	onDidChangeStreamState: Event<{ threadId: string }>
 
 	getCurrentThread(): ThreadType;
-	openNewThread(): void;
+	openNewThread(opts?: { agentType?: 'interactive' | 'background'; isAuto?: boolean }): void;
 	switchToThread(threadId: string): void;
 
 	// thread selector
@@ -327,6 +336,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IDirectoryStrService private readonly _directoryStringService: IDirectoryStrService,
 		@IFileService private readonly _fileService: IFileService,
 		@IMCPService private readonly _mcpService: IMCPService,
+		@ILocalProviderRegistryService private readonly _forgeProviderService: ILocalProviderRegistryService,
+		@IPathService private readonly _pathService: IPathService,
 	) {
 		super()
 		this.state = { allThreads: {}, currentThreadId: null as unknown as string } // default state
@@ -338,6 +349,13 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			allThreads: allThreads,
 			currentThreadId: null as unknown as string, // gets set in startNewThread()
 		}
+
+		// Initial load from .forge/sessions and poll every 2s
+		void this._loadThreadsFromForgeSessions();
+		const intervalId = setInterval(() => {
+			void this._loadThreadsFromForgeSessions();
+		}, 2000);
+		this._register({ dispose: () => clearInterval(intervalId) });
 
 		// always be in a thread
 		this.openNewThread()
@@ -420,6 +438,131 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			StorageScope.APPLICATION,
 			StorageTarget.USER
 		);
+
+		// Also write to ~/.forge/sessions/
+		for (const id in threads) {
+			const thread = threads[id];
+			if (thread) {
+				void this._saveThreadToForgeSessions(thread);
+			}
+		}
+	}
+
+	private _getWorkspaceHash(): string {
+		const workspace = this._workspaceContextService.getWorkspace();
+		const workspacePath = workspace.folders[0]?.uri.fsPath || 'empty';
+		let hashVal = 5381;
+		for (let i = 0; i < workspacePath.length; i++) {
+			hashVal = (hashVal * 33) ^ workspacePath.charCodeAt(i);
+		}
+		return (hashVal >>> 0).toString(16);
+	}
+
+	private async _saveThreadToForgeSessions(thread: ThreadType) {
+		try {
+			const workspace = this._workspaceContextService.getWorkspace();
+			const workspacePath = workspace.folders[0]?.uri.fsPath || 'empty';
+			const workspaceHash = this._getWorkspaceHash();
+			const userHome = this._pathService.userHome({ preferLocal: true });
+			const sessionsDirURI = joinPath(userHome, '.forge', 'sessions', workspaceHash);
+			const sessionFileURI = joinPath(sessionsDirURI, `${thread.id}.json`);
+
+			const firstMessage = thread.messages[0];
+			const firstMessageContent = firstMessage && (firstMessage.role === 'user' || firstMessage.role === 'tool') ? firstMessage.content : '';
+
+			// Reconstruct session data
+			const sessionJSON = {
+				id: thread.id,
+				title: firstMessageContent.slice(0, 50) || 'New Session',
+				createdAt: thread.createdAt,
+				lastModified: new Date().toISOString(),
+				agentType: thread.agentType || 'interactive',
+				isAuto: thread.isAuto !== undefined ? thread.isAuto : false,
+				prompt: firstMessageContent,
+				messages: thread.messages,
+				workspacePath: workspacePath
+			};
+
+			await this._fileService.createFolder(sessionsDirURI).catch(() => {});
+			await this._fileService.writeFile(sessionFileURI, VSBuffer.fromString(JSON.stringify(sessionJSON, null, 2)));
+		} catch (err) {
+			console.error('Failed to save thread to .forge/sessions:', err);
+		}
+	}
+
+	private async _deleteThreadFromForgeSessions(threadId: string) {
+		try {
+			const workspaceHash = this._getWorkspaceHash();
+			const userHome = this._pathService.userHome({ preferLocal: true });
+			const sessionFileURI = joinPath(userHome, '.forge', 'sessions', workspaceHash, `${threadId}.json`);
+			if (await this._fileService.exists(sessionFileURI)) {
+				await this._fileService.del(sessionFileURI);
+			}
+		} catch (err) {
+			console.error('Failed to delete session file:', err);
+		}
+	}
+
+	private async _loadThreadsFromForgeSessions() {
+		try {
+			const workspaceHash = this._getWorkspaceHash();
+			const userHome = this._pathService.userHome({ preferLocal: true });
+			const sessionsDirURI = joinPath(userHome, '.forge', 'sessions', workspaceHash);
+
+			if (!await this._fileService.exists(sessionsDirURI)) {
+				return;
+			}
+
+			const stat = await this._fileService.resolve(sessionsDirURI);
+			if (stat.children) {
+				const loadedThreads: ChatThreads = { ...this.state.allThreads };
+				let changed = false;
+				for (const child of stat.children) {
+					if (child.name.endsWith('.json')) {
+						try {
+							const fileContent = await this._fileService.readFile(child.resource);
+							const sessionJSON = JSON.parse(fileContent.value.toString());
+							if (sessionJSON && sessionJSON.id) {
+								const existing = loadedThreads[sessionJSON.id];
+								if (!existing || existing.lastModified !== sessionJSON.lastModified) {
+									loadedThreads[sessionJSON.id] = {
+										id: sessionJSON.id,
+										createdAt: sessionJSON.createdAt || new Date().toISOString(),
+										lastModified: sessionJSON.lastModified || new Date().toISOString(),
+										messages: sessionJSON.messages || [],
+										filesWithUserChanges: existing?.filesWithUserChanges || new Set(),
+										agentType: sessionJSON.agentType,
+										isAuto: sessionJSON.isAuto,
+										state: existing?.state || {
+											currCheckpointIdx: null,
+											stagingSelections: [],
+											focusedMessageIdx: undefined,
+											linksOfMessageIdx: {},
+										}
+									};
+									changed = true;
+								}
+							}
+						} catch (e) {
+							// Ignore parsing errors for in-progress writes
+						}
+					}
+				}
+				if (changed) {
+					// Update storage
+					const serializedThreads = JSON.stringify(loadedThreads);
+					this._storageService.store(
+						THREAD_STORAGE_KEY,
+						serializedThreads,
+						StorageScope.APPLICATION,
+						StorageTarget.USER
+					);
+					this._setState({ allThreads: loadedThreads });
+				}
+			}
+		} catch (err) {
+			console.error('Failed to load threads from .forge/sessions:', err);
+		}
 	}
 
 
@@ -750,6 +893,25 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		// above just defines helpers, below starts the actual function
 		const { chatMode } = this._settingsService.state.globalSettings // should not change as we loop even if user changes it, so it goes here
 		const { overridesOfModel } = this._settingsService.state
+
+		// Agent mode requires native tool-calling support on the selected model
+		if (chatMode === 'agent' && modelSelection) {
+			const { providerName, modelName } = modelSelection;
+			const forgeCaps = this._forgeProviderService.capabilitiesFor(providerName, modelName);
+			const voidCaps = getModelCapabilities(providerName, modelName, overridesOfModel);
+			const supportsAgent = forgeCaps.supportsTools || !!voidCaps.specialToolFormat;
+			if (!supportsAgent) {
+				this._addMessageToThread(threadId, {
+					role: 'assistant',
+					displayContent: `Agent mode is not available for **${modelName}** — this model does not support tool calling. Try a tool-capable model such as \`llama3.1:8b\`, \`qwen2.5:7b\`, or \`qwen2.5-coder:7b\` in Ollama.`,
+					reasoning: '',
+					anthropicReasoning: null,
+				});
+				this._setStreamState(threadId, undefined);
+				this._addUserCheckpoint({ threadId });
+				return;
+			}
+		}
 
 		let nMessagesSent = 0
 		let shouldSendAnotherMessage = true
@@ -1625,18 +1787,25 @@ We only need to do it for files that were edited since `from`, ie files between 
 	}
 
 
-	openNewThread() {
+	openNewThread(opts?: { agentType?: 'interactive' | 'background'; isAuto?: boolean }): void {
 		// if a thread with 0 messages already exists, switch to it
 		const { allThreads: currentThreads } = this.state
 		for (const threadId in currentThreads) {
 			if (currentThreads[threadId]!.messages.length === 0) {
 				// switch to the existing empty thread and exit
-				this.switchToThread(threadId)
+				if (opts) {
+					currentThreads[threadId]!.agentType = opts.agentType ?? currentThreads[threadId]!.agentType;
+					currentThreads[threadId]!.isAuto = opts.isAuto ?? currentThreads[threadId]!.isAuto;
+					this._storeAllThreads(currentThreads);
+					this._setState({ allThreads: currentThreads, currentThreadId: threadId });
+				} else {
+					this.switchToThread(threadId);
+				}
 				return
 			}
 		}
 		// otherwise, start a new thread
-		const newThread = newThreadObject()
+		const newThread = newThreadObject(opts)
 
 		// update state
 		const newThreads: ChatThreads = {
@@ -1657,6 +1826,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 		// store the updated threads
 		this._storeAllThreads(newThreads);
+		void this._deleteThreadFromForgeSessions(threadId);
 		this._setState({ ...this.state, allThreads: newThreads })
 	}
 

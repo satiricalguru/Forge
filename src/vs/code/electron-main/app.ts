@@ -133,6 +133,12 @@ import { LLMMessageChannel } from '../../workbench/contrib/void/electron-main/se
 import { VoidSCMService } from '../../workbench/contrib/void/electron-main/voidSCMMainService.js';
 import { IVoidSCMService } from '../../workbench/contrib/void/common/voidSCMTypes.js';
 import { MCPChannel } from '../../workbench/contrib/void/electron-main/mcpChannel.js';
+import { ISkillsService } from '../../workbench/contrib/void/common/skillsService.js';
+import { SkillsMainService } from '../../workbench/contrib/void/electron-main/skillsMainService.js';
+import { IHardwareService } from '../../workbench/contrib/void/common/hardwareService.js';
+import { HardwareMainService } from '../../workbench/contrib/void/electron-main/hardwareMainService.js';
+import { ISessionRegistryService } from '../../workbench/contrib/void/common/sessionRegistryTypes.js';
+import { SessionRegistryMainService } from '../../workbench/contrib/void/electron-main/sessionRegistryMainService.js';
 /**
  * The main VS Code application. There will only ever be one instance,
  * even if the user starts many instances (e.g. from the command line).
@@ -1105,6 +1111,9 @@ export class CodeApplication extends Disposable {
 		services.set(IMetricsService, new SyncDescriptor(MetricsMainService, undefined, false));
 		services.set(IVoidUpdateService, new SyncDescriptor(VoidMainUpdateService, undefined, false));
 		services.set(IVoidSCMService, new SyncDescriptor(VoidSCMService, undefined, false));
+		services.set(ISkillsService, new SyncDescriptor(SkillsMainService, undefined, false));
+		services.set(IHardwareService, new SyncDescriptor(HardwareMainService, undefined, false));
+		services.set(ISessionRegistryService, new SyncDescriptor(SessionRegistryMainService, undefined, false));
 
 		// Default Extensions Profile Init
 		services.set(IExtensionsProfileScannerService, new SyncDescriptor(ExtensionsProfileScannerService, undefined, true));
@@ -1243,12 +1252,24 @@ export class CodeApplication extends Disposable {
 		const voidUpdatesChannel = ProxyChannel.fromService(accessor.get(IVoidUpdateService), disposables);
 		mainProcessElectronServer.registerChannel('void-channel-update', voidUpdatesChannel);
 
-		const sendLLMMessageChannel = new LLMMessageChannel(accessor.get(IMetricsService));
+		const sendLLMMessageChannel = new LLMMessageChannel();
 		mainProcessElectronServer.registerChannel('void-channel-llmMessage', sendLLMMessageChannel);
 
 		// Void added this
 		const voidSCMChannel = ProxyChannel.fromService(accessor.get(IVoidSCMService), disposables);
 		mainProcessElectronServer.registerChannel('void-channel-scm', voidSCMChannel);
+
+		// Forge added this
+		const skillsChannel = ProxyChannel.fromService(accessor.get(ISkillsService), disposables);
+		mainProcessElectronServer.registerChannel('void-channel-skills', skillsChannel);
+
+		// Forge added this
+		const hardwareChannel = ProxyChannel.fromService(accessor.get(IHardwareService), disposables);
+		mainProcessElectronServer.registerChannel('void-channel-hardware', hardwareChannel);
+
+		// Forge Session Registry
+		const sessionRegistryChannel = ProxyChannel.fromService(accessor.get(ISessionRegistryService), disposables);
+		mainProcessElectronServer.registerChannel('forge-channel-sessions', sessionRegistryChannel);
 
 		// Void added this
 		const mcpChannel = new MCPChannel();
@@ -1273,6 +1294,10 @@ export class CodeApplication extends Disposable {
 
 		const context = isLaunchedFromCli(process.env) ? OpenContext.CLI : OpenContext.DESKTOP;
 		const args = this.environmentMainService.args;
+
+		if (args.agents) {
+			return [await windowsMainService.openAgentsWindow({ context })];
+		}
 
 		// First check for windows from protocol links to open
 		if (initialProtocolUrls) {

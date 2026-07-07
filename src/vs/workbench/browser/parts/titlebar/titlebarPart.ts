@@ -585,7 +585,6 @@ export class BrowserTitlebarPart extends Part implements ITitlebarPart {
 			}
 		}
 
-		// Check extensions
 		return createActionViewItem(this.instantiationService, action, { ...options, menuAsChild: false });
 	}
 

@@ -28,8 +28,8 @@ import './voidSettingsPane.js'
 // register css
 import './media/void.css'
 
-// update (frontend part, also see platform/)
-import './voidUpdateActions.js'
+// update (frontend part, also see platform/) — disabled for Forge v1
+// import './voidUpdateActions.js'
 
 import './convertToLLMMessageWorkbenchContrib.js'
 
@@ -40,8 +40,8 @@ import './terminalToolService.js'
 // register Thread History
 import './chatThreadService.js'
 
-// ping
-import './metricsPollService.js'
+// ping — telemetry disabled for Forge
+// import './metricsPollService.js'
 
 // helper services
 import './helperServices/consistentItemService.js'
@@ -69,6 +69,9 @@ import './voidSCMService.js'
 // llmMessage
 import '../common/sendLLMMessageService.js'
 
+// forge provider layer (Phase 2)
+import '../common/forgeProviderContribution.js'
+
 // voidSettings
 import '../common/voidSettingsService.js'
 
@@ -83,3 +86,31 @@ import '../common/voidUpdateService.js'
 
 // model service
 import '../common/voidModelService.js'
+
+// Forge added services
+import '../common/skillsService.js'
+import '../common/hardwareService.js'
+import '../common/sessionRegistryService.js'
+import './agentsWindowActions.js'
+
+import { Registry } from '../../../../platform/registry/common/platform.js';
+import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';
+
+const configRegistry = Registry.as<IConfigurationRegistry>(ConfigurationExtensions.Configuration);
+configRegistry.registerConfiguration({
+	id: 'forge',
+	order: 10,
+	title: 'Forge',
+	type: 'object',
+	properties: {
+		'forge.agentsWindow.showTitleBarButton': {
+			type: 'boolean',
+			default: true,
+			description: 'Toggle visibility of the "Open in Agents" button in the title bar.'
+		}
+	}
+});
+
+if (typeof globalThis !== 'undefined' && globalThis.performance) {
+	console.log(`[Forge] AI Contribution modules loaded at: ${globalThis.performance.now().toFixed(2)}ms`);
+}

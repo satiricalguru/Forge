@@ -137,6 +137,12 @@ export class LaunchMainService implements ILaunchMainService {
 			forceTempProfile: args['profile-temp']
 		};
 
+		// Special case agents window
+		if (args.agents) {
+			await this.windowsMainService.openAgentsWindow(baseConfig);
+			return;
+		}
+
 		// Special case extension development
 		if (!!args.extensionDevelopmentPath) {
 			await this.windowsMainService.openExtensionDevelopmentHostWindow(args.extensionDevelopmentPath, baseConfig);

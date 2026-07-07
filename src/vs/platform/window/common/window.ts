@@ -400,6 +400,7 @@ export interface INativeWindowConfiguration extends IWindowConfiguration, Native
 	workspace?: IWorkspaceIdentifier | ISingleFolderWorkspaceIdentifier;
 
 	isInitialStartup?: boolean;
+	isAgentsWindow?: boolean;
 	logLevel: LogLevel;
 	loggers: UriDto<ILoggerResource>[];
 

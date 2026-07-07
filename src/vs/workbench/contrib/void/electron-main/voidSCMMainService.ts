@@ -5,6 +5,8 @@
 
 import { promisify } from 'util'
 import { exec as _exec } from 'child_process'
+import * as path from 'path'
+import * as fs from 'fs'
 import { IVoidSCMService } from '../common/voidSCMTypes.js'
 
 interface NumStat {
@@ -19,10 +21,13 @@ const exec = promisify(_exec)
 const MAX_DIFF_LENGTH = 8000
 const MAX_DIFF_FILES = 10
 
-const git = async (command: string, path: string): Promise<string> => {
-	const { stdout, stderr } = await exec(`${command}`, { cwd: path })
+const git = async (command: string, cwdPath: string): Promise<string> => {
+	const { stdout, stderr } = await exec(`${command}`, { cwd: cwdPath })
 	if (stderr) {
-		throw new Error(stderr)
+		// git checkout or show might output warnings to stderr, but if stdout has content we still treat it as success
+		if (!stdout) {
+			throw new Error(stderr)
+		}
 	}
 	return stdout.trim()
 }
@@ -32,6 +37,7 @@ const getNumStat = async (path: string, useStagedChanges: boolean): Promise<NumS
 	const output = await git(`git diff --numstat ${staged}`, path)
 	return output
 		.split('\n')
+		.filter(Boolean)
 		.map((line) => {
 			const [added, removed, file] = line.split('\t')
 			return {
@@ -78,5 +84,85 @@ export class VoidSCMService implements IVoidSCMService {
 
 	gitLog(path: string): Promise<string> {
 		return git('git log --pretty=format:"%h|%s|%ad" --date=short --no-merges -n 5', path)
+	}
+
+	async gitStatus(pathStr: string): Promise<{ file: string; status: string }[]> {
+		try {
+			const output = await git('git status --porcelain', pathStr);
+			if (!output) return [];
+			return output.split('\n').filter(Boolean).map(line => {
+				const statusCode = line.slice(0, 2);
+				const file = line.slice(3).trim();
+				let status = 'modified';
+				if (statusCode.includes('A')) status = 'added';
+				else if (statusCode.includes('D')) status = 'deleted';
+				else if (statusCode.includes('?')) status = 'untracked';
+				return { file, status };
+			});
+		} catch (err) {
+			console.error('[VoidSCM] Error in gitStatus:', err);
+			return [];
+		}
+	}
+
+	async gitDiff(pathStr: string, file: string): Promise<string> {
+		try {
+			return await git(`git diff HEAD -- "${file}"`, pathStr);
+		} catch {
+			try {
+				const content = await fs.promises.readFile(path.join(pathStr, file), 'utf8');
+				return content.split('\n').map(line => `+${line}`).join('\n');
+			} catch {
+				return '';
+			}
+		}
+	}
+
+	async gitDiscard(pathStr: string, file?: string): Promise<void> {
+		try {
+			if (file) {
+				await exec(`git checkout HEAD -- "${file}"`, { cwd: pathStr }).catch(() => {});
+				await exec(`git clean -fd -- "${file}"`, { cwd: pathStr }).catch(() => {});
+			} else {
+				await exec('git reset --hard HEAD', { cwd: pathStr });
+				await exec('git clean -fd', { cwd: pathStr });
+			}
+		} catch (err) {
+			console.error('[VoidSCM] Error in gitDiscard:', err);
+		}
+	}
+
+	async gitAdd(pathStr: string, file: string): Promise<void> {
+		try {
+			await git(`git add "${file}"`, pathStr);
+		} catch (err) {
+			console.error('[VoidSCM] Error in gitAdd:', err);
+		}
+	}
+
+	async gitCommit(pathStr: string, message: string): Promise<void> {
+		try {
+			await exec('git add -A', { cwd: pathStr });
+			await exec(`git commit -m "${message}"`, { cwd: pathStr });
+		} catch (err) {
+			console.error('[VoidSCM] Error in gitCommit:', err);
+			throw err;
+		}
+	}
+
+	async gitGetOriginalFile(pathStr: string, file: string): Promise<string> {
+		try {
+			const tmpDir = path.join(pathStr, '.forge', 'tmp');
+			if (!fs.existsSync(tmpDir)) {
+				fs.mkdirSync(tmpDir, { recursive: true });
+			}
+			const content = await git(`git show HEAD:"${file}"`, pathStr).catch(() => '');
+			const tempFilePath = path.join(tmpDir, `${Date.now()}-${file.replace(/[\/\\]/g, '_')}`);
+			await fs.promises.writeFile(tempFilePath, content, 'utf8');
+			return tempFilePath;
+		} catch (err) {
+			console.error('[VoidSCM] Error in gitGetOriginalFile:', err);
+			return '';
+		}
 	}
 }

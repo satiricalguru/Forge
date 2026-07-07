@@ -1,0 +1,54 @@
+---
+description: Forge local-first AI IDE master build specification
+alwaysApply: true
+---
+
+# Forge — Local-First AI IDE
+
+## Mission
+Desktop IDE fork of VS Code (base: voideditor/void), purpose-built for **local LLM inference only**. No cloud API keys. All AI features talk to localhost model servers (Ollama, LM Studio, llama.cpp, vLLM, LocalAI, etc.).
+
+**Non-negotiables:** No telemetry, no accounts, no license gating, no cloud provider paths. Network only for Open VSX marketplace, optional self-hosted updates, and localhost/LAN model traffic.
+
+## Build Phases (run sequentially, one Agent session each)
+
+| Phase | Goal |
+|-------|------|
+| 0 | Scaffold: clone Void, baseline build, rebrand product.json + Open VSX |
+| 1 | Strip cloud providers, telemetry, Microsoft marketplace, Void update feed |
+| 2 | `ILocalProvider` layer + auto-discovery + health dots |
+| 3 | Chat (Cmd+L) + inline edit (Cmd+K) via providers |
+| 4 | Agent, tools, checkpoints, Fast-Apply, lint-feedback |
+| 5 | Tab autocomplete (FIM) |
+| 6 | Skills system (`.forge/skills/*/SKILL.md`) |
+| 7 | Model/provider UI + hardware-aware fit |
+| 8 | Performance pass (<2.5s cold start, <400MB idle RAM) |
+| 9 | Packaging (signed macOS DMG, Windows, Linux) |
+
+## Target Code Layout (rename void → forge over phases)
+
+```
+src/vs/workbench/contrib/forge/
+├── browser/          # React UI, chat, autocomplete, edit
+├── common/           # ILocalProvider, skills, settings, prompts
+└── electron-main/    # HTTP to localhost, MCP, hardware probe
+```
+
+## Provider Defaults
+
+| Runtime | Host:Port |
+|---------|-----------|
+| Ollama | localhost:11434 |
+| LM Studio | localhost:1234 |
+| llama.cpp | localhost:8080 |
+| vLLM | localhost:8000 |
+| LocalAI | localhost:8080 |
+
+## Acceptance Checklist
+- Zero network except localhost pings + Open VSX
+- E2E chat/agent/autocomplete on Ollama, LM Studio, llama.cpp
+- Agent refuses gracefully when `supportsTools === false`
+- Skills hot-reload with selective injection
+- No Void/Microsoft branding or telemetry in product.json
+
+See full spec in project docs or upstream conversation for detailed interfaces (`ILocalProvider`, `IModelCapabilities`, skills format).

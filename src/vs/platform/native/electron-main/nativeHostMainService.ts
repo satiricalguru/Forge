@@ -231,6 +231,13 @@ export class NativeHostMainService extends Disposable implements INativeHostMain
 		return this.doOpenEmptyWindow(windowId, arg1);
 	}
 
+	async openAgentsWindow(windowId: number | undefined): Promise<void> {
+		await this.windowsMainService.openAgentsWindow({
+			context: OpenContext.API,
+			contextWindowId: windowId
+		});
+	}
+
 	private async doOpenWindow(windowId: number | undefined, toOpen: IWindowOpenable[], options: IOpenWindowOptions = Object.create(null)): Promise<void> {
 		if (toOpen.length > 0) {
 			await this.windowsMainService.open({
