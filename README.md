@@ -1,8 +1,10 @@
-# 🔨 Forge
-
 <div align="center">
-  <h3><strong>The Local-First, Privacy-Respecting AI IDE</strong></h3>
-  <p>Forge is an open-source IDE forked from VS Code and built on top of the Void editor codebase. It is designed from the ground up for developers who demand complete code privacy, offline capabilities, and zero telemetry.</p>
+  <img src="./forge_icons/logo_cube_noshadow.png" alt="Forge Logo" width="128" height="128" />
+
+  # Forge
+
+  ### **The Local-First, Privacy-Respecting AI IDE**
+  Forge is an open-source IDE forked from VS Code and built on top of the Void editor codebase. It is designed from the ground up for developers who demand complete code privacy, offline capabilities, and zero telemetry.
 
   <p>
     <a href="#-key-pillars">Key Pillars</a> •
