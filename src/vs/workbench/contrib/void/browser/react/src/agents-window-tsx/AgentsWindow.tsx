@@ -104,8 +104,8 @@ const ModelDropdown = ({ options, selected, onSelect }: {
 };
 
 // ── WorkspaceDropdown ────────────────────────────────────────────────────────
-const WorkspaceDropdown = ({ folders, selected, onSelect }: {
-  folders: any[]; selected: URI | null; onSelect: (u: URI) => void;
+const WorkspaceDropdown = ({ folders, selected, onSelect, commandService }: {
+  folders: any[]; selected: URI | null; onSelect: (u: URI) => void; commandService: any;
 }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -127,9 +127,9 @@ const WorkspaceDropdown = ({ folders, selected, onSelect }: {
       onMouseEnter={e => e.currentTarget.style.textDecoration = 'underline'}
       onMouseLeave={e => e.currentTarget.style.textDecoration = 'none'}>
         📁 {name}
-        {folders.length > 1 && <span className="codicon codicon-chevron-down" style={{ fontSize: 8, opacity: 0.5, marginLeft: 2 }} />}
+        <span className="codicon codicon-chevron-down" style={{ fontSize: 8, opacity: 0.5, marginLeft: 2 }} />
       </span>
-      {open && folders.length > 1 && (
+      {open && (
         <div style={{
           position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 9999,
           minWidth: 180, background: 'var(--vscode-dropdown-background)',
@@ -144,6 +144,15 @@ const WorkspaceDropdown = ({ folders, selected, onSelect }: {
               {f.name || f.uri.fsPath.split('/').pop()}
             </div>
           ))}
+          <div style={{ height: 1, background: B, margin: '4px 0' }} />
+          <div
+            onClick={() => { commandService.executeCommand('workbench.action.files.openFolder'); setOpen(false); }}
+            style={{ padding: '6px 14px', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}
+            onMouseEnter={e => e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+            <span className="codicon codicon-add" style={{ fontSize: 12 }} />
+            <span>Open Folder...</span>
+          </div>
         </div>
       )}
     </div>
@@ -611,7 +620,7 @@ export const AgentsWindow = () => {
                 {/* "New session in X with Y" */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, marginBottom: 14, flexWrap: 'wrap', justifyContent: 'center' }}>
                   <span style={{ opacity: 0.6 }}>New session in</span>
-                  <WorkspaceDropdown folders={folders} selected={selectedFolder} onSelect={setSelectedFolder} />
+                  <WorkspaceDropdown folders={folders} selected={selectedFolder} onSelect={setSelectedFolder} commandService={commandService} />
                   <span style={{ opacity: 0.6 }}>with</span>
                   <ModelDropdown options={liveModels} selected={selectedModel} onSelect={handleSelectModel} />
                 </div>
@@ -671,7 +680,11 @@ export const AgentsWindow = () => {
                     <span>{approvalLevel === 'default' ? 'Default' : approvalLevel === 'bypass' ? 'Bypass' : 'Autopilot'} Approvals</span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <div
+                      onClick={() => commandService.executeCommand('workbench.action.files.openFolder')}
+                      style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}
+                      onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                      onMouseLeave={e => e.currentTarget.style.opacity = '0.7'}>
                       <span className="codicon codicon-folder" style={{ fontSize: 12 }} />
                       <span>Folder</span>
                     </div>
