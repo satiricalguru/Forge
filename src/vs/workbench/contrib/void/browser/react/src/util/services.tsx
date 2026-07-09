@@ -107,15 +107,20 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 
 	_registerAccessor(accessor)
 
+	// safeGet silences "service not registered" errors so the agents window (which skips
+	// initLayout and WorkbenchContributions.start) can boot even if editor-specific services
+	// like IEditCodeService / IVoidCommandBarService / IMCPService haven't instantiated yet.
+	const safeGet = <T,>(id: any): T | null => { try { return accessor.get<T>(id) } catch { return null } }
+
 	const stateServices = {
 		chatThreadsStateService: accessor.get(IChatThreadService),
 		settingsStateService: accessor.get(IVoidSettingsService),
 		refreshModelService: accessor.get(IRefreshModelService),
 		themeService: accessor.get(IThemeService),
-		editCodeService: accessor.get(IEditCodeService),
-		voidCommandBarService: accessor.get(IVoidCommandBarService),
-		modelService: accessor.get(IModelService),
-		mcpService: accessor.get(IMCPService),
+		editCodeService: safeGet<IEditCodeService>(IEditCodeService),
+		voidCommandBarService: safeGet<IVoidCommandBarService>(IVoidCommandBarService),
+		modelService: safeGet<typeof import('../../../../../../../editor/common/services/model.js').IModelService>(IModelService),
+		mcpService: safeGet<IMCPService>(IMCPService),
 	}
 
 	const { settingsStateService, chatThreadsStateService, refreshModelService, themeService, editCodeService, voidCommandBarService, modelService, mcpService } = stateServices
@@ -165,31 +170,37 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 		})
 	)
 
-	// no state
-	disposables.push(
-		editCodeService.onDidChangeStreamingInCtrlKZone(({ diffareaid }) => {
-			const isStreaming = editCodeService.isCtrlKZoneStreaming({ diffareaid })
-			ctrlKZoneStreamingStateListeners.forEach(l => l(diffareaid, isStreaming))
-		})
-	)
+	// editor-specific state subscriptions — skipped gracefully in agents window
+	if (editCodeService) {
+		disposables.push(
+			editCodeService.onDidChangeStreamingInCtrlKZone(({ diffareaid }) => {
+				const isStreaming = editCodeService.isCtrlKZoneStreaming({ diffareaid })
+				ctrlKZoneStreamingStateListeners.forEach(l => l(diffareaid, isStreaming))
+			})
+		)
+	}
 
-	disposables.push(
-		voidCommandBarService.onDidChangeState(({ uri }) => {
-			commandBarURIStateListeners.forEach(l => l(uri));
-		})
-	)
+	if (voidCommandBarService) {
+		disposables.push(
+			voidCommandBarService.onDidChangeState(({ uri }) => {
+				commandBarURIStateListeners.forEach(l => l(uri));
+			})
+		)
 
-	disposables.push(
-		voidCommandBarService.onDidChangeActiveURI(({ uri }) => {
-			activeURIListeners.forEach(l => l(uri));
-		})
-	)
+		disposables.push(
+			voidCommandBarService.onDidChangeActiveURI(({ uri }) => {
+				activeURIListeners.forEach(l => l(uri));
+			})
+		)
+	}
 
-	disposables.push(
-		mcpService.onDidChangeState(() => {
-			mcpListeners.forEach(l => l())
-		})
-	)
+	if (mcpService) {
+		disposables.push(
+			mcpService.onDidChangeState(() => {
+				mcpListeners.forEach(l => l())
+			})
+		)
+	}
 
 
 	return disposables
@@ -199,14 +210,15 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 
 const getReactAccessor = (accessor: ServicesAccessor) => {
 	// safeGet swallows "service not registered" errors so the agents window can boot
-	// in contexts (e.g. the standalone agents BrowserWindow) that skip the full
-	// WorkbenchContributions bootstrap and therefore don't register every void service.
+	// in contexts (e.g. the standalone agents BrowserWindow) that skip initLayout and
+	// WorkbenchContributions.start, meaning editor-specific services may not be available.
 	const safeGet = <T,>(id: any): T | null => {
 		try { return accessor.get<T>(id); } catch { return null; }
 	};
 
 	const reactAccessor = {
-		IModelService: accessor.get(IModelService),
+		// Core platform services — always available
+		IModelService: safeGet(IModelService),
 		IClipboardService: accessor.get(IClipboardService),
 		IContextViewService: accessor.get(IContextViewService),
 		IContextMenuService: accessor.get(IContextMenuService),
@@ -216,46 +228,46 @@ const getReactAccessor = (accessor: ServicesAccessor) => {
 		ILLMMessageService: accessor.get(ILLMMessageService),
 		IRefreshModelService: accessor.get(IRefreshModelService),
 		IVoidSettingsService: accessor.get(IVoidSettingsService),
-		IEditCodeService: accessor.get(IEditCodeService),
 		IChatThreadService: accessor.get(IChatThreadService),
 
 		IInstantiationService: accessor.get(IInstantiationService),
-		ICodeEditorService: accessor.get(ICodeEditorService),
 		ICommandService: accessor.get(ICommandService),
 		IContextKeyService: accessor.get(IContextKeyService),
 		INotificationService: accessor.get(INotificationService),
 		IAccessibilityService: accessor.get(IAccessibilityService),
-		ILanguageConfigurationService: accessor.get(ILanguageConfigurationService),
-		ILanguageDetectionService: accessor.get(ILanguageDetectionService),
-		ILanguageFeaturesService: accessor.get(ILanguageFeaturesService),
 		IKeybindingService: accessor.get(IKeybindingService),
-		ISearchService: accessor.get(ISearchService),
-
-		IExplorerService: accessor.get(IExplorerService),
 		IEnvironmentService: accessor.get(IEnvironmentService),
 		IConfigurationService: accessor.get(IConfigurationService),
 		IPathService: accessor.get(IPathService),
 		IMetricsService: accessor.get(IMetricsService),
-		ITerminalToolService: accessor.get(ITerminalToolService),
-		ILanguageService: accessor.get(ILanguageService),
-		IVoidModelService: accessor.get(IVoidModelService),
+		ILanguageService: safeGet(ILanguageService),
 		IWorkspaceContextService: accessor.get(IWorkspaceContextService),
-
-		IVoidCommandBarService: accessor.get(IVoidCommandBarService),
 		INativeHostService: accessor.get(INativeHostService),
-		IToolsService: accessor.get(IToolsService),
-		IConvertToLLMMessageService: accessor.get(IConvertToLLMMessageService),
-		ITerminalService: accessor.get(ITerminalService),
-		IExtensionManagementService: accessor.get(IExtensionManagementService),
-		IExtensionTransferService: accessor.get(IExtensionTransferService),
-		IMCPService: accessor.get(IMCPService),
-
-		ILocalProviderRegistry: safeGet(ILocalProviderRegistry),
-		ILocalProviderRegistryService: safeGet(ILocalProviderRegistryService),
-
 		IStorageService: accessor.get(IStorageService),
 		IHardwareService: accessor.get(IHardwareService),
 		ISkillsService: accessor.get(ISkillsService),
+
+		// Editor/layout-dependent services — may not be available in agents window
+		IEditCodeService: safeGet(IEditCodeService),
+		ICodeEditorService: safeGet(ICodeEditorService),
+		IVoidCommandBarService: safeGet(IVoidCommandBarService),
+		IExplorerService: safeGet(IExplorerService),
+		ITerminalToolService: safeGet(ITerminalToolService),
+		ITerminalService: safeGet(ITerminalService),
+		ISearchService: safeGet(ISearchService),
+		IExtensionManagementService: safeGet(IExtensionManagementService),
+		IExtensionTransferService: safeGet(IExtensionTransferService),
+		IVoidModelService: safeGet(IVoidModelService),
+		IToolsService: safeGet(IToolsService),
+		IConvertToLLMMessageService: safeGet(IConvertToLLMMessageService),
+		IMCPService: safeGet(IMCPService),
+		ILanguageConfigurationService: safeGet(ILanguageConfigurationService),
+		ILanguageDetectionService: safeGet(ILanguageDetectionService),
+		ILanguageFeaturesService: safeGet(ILanguageFeaturesService),
+
+		// Forge-specific — always safeGet
+		ILocalProviderRegistry: safeGet(ILocalProviderRegistry),
+		ILocalProviderRegistryService: safeGet(ILocalProviderRegistryService),
 		ISessionRegistryService: safeGet(ISessionRegistryService),
 
 	} as const
@@ -392,12 +404,12 @@ export const useCommandBarURIListener = (listener: (uri: URI) => void) => {
 export const useCommandBarState = () => {
 	const accessor = useAccessor()
 	const commandBarService = accessor.get('IVoidCommandBarService')
-	const [s, ss] = useState({ stateOfURI: commandBarService.stateOfURI, sortedURIs: commandBarService.sortedURIs });
+	const empty = { stateOfURI: {} as any, sortedURIs: [] as URI[] }
+	const [s, ss] = useState(commandBarService ? { stateOfURI: commandBarService.stateOfURI, sortedURIs: commandBarService.sortedURIs } : empty);
 	const listener = useCallback(() => {
-		ss({ stateOfURI: commandBarService.stateOfURI, sortedURIs: commandBarService.sortedURIs });
+		if (commandBarService) ss({ stateOfURI: commandBarService.stateOfURI, sortedURIs: commandBarService.sortedURIs });
 	}, [commandBarService])
 	useCommandBarURIListener(listener)
-
 	return s;
 }
 

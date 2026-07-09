@@ -62,31 +62,22 @@ class ExtensionTransferService extends Disposable implements IExtensionTransferS
 		let errAcc = ''
 
 		for (const { from, to, isExtensions } of transferTheseFiles) {
-			// Check if the source file exists before attempting to copy
 			try {
 				if (!isExtensions) {
-					console.log('transferring item', from, to)
-
 					const exists = await fileService.exists(from)
 					if (exists) {
-						// Ensure the destination directory exists
 						const toParent = URI.joinPath(to, '..')
 						const toParentExists = await fileService.exists(toParent)
 						if (!toParentExists) {
 							await fileService.createFolder(toParent)
 						}
 						await fileService.copy(from, to, true)
-					} else {
-						console.log(`Skipping file that doesn't exist: ${from.toString()}`)
 					}
-				}
-				// extensions folder
-				else {
-					console.log('transferring extensions...', from, to)
+				} else {
 					const exists = await fileService.exists(from)
 					if (exists) {
 						const stat = await fileService.resolve(from)
-						const toParent = URI.joinPath(to) // extensions/
+						const toParent = URI.joinPath(to)
 						const toParentExists = await fileService.exists(toParent)
 						if (!toParentExists) {
 							await fileService.createFolder(toParent)
@@ -100,8 +91,7 @@ class ExtensionTransferService extends Disposable implements IExtensionTransferS
 								if (!isBlacklisted(extensionFolder.resource.fsPath)) {
 									await fileService.copy(from, to, true)
 								}
-							}
-							else if (toStat.isFile) {
+							} else if (toStat.isFile) {
 								if (extensionFolder.name === 'extensions.json') {
 									try {
 										const contentsStr = await fileService.readFile(from)
@@ -109,21 +99,17 @@ class ExtensionTransferService extends Disposable implements IExtensionTransferS
 										const j2 = json.filter((entry: { identifier?: { id?: string } }) => !isBlacklisted(entry?.identifier?.id))
 										const jsonStr = JSON.stringify(j2)
 										await fileService.writeFile(to, VSBuffer.fromString(jsonStr))
-									}
-									catch {
-										console.log('Error copying extensions.json, skipping')
+									} catch {
+										console.error('Error copying extensions.json, skipping')
 									}
 								}
 							}
 						}
-
 					} else {
-						console.log(`Skipping file that doesn't exist: ${from.toString()}`)
+						console.warn(`Skipping file that doesn't exist: ${from.toString()}`)
 					}
-					console.log('done transferring extensions.')
 				}
-			}
-			catch (e) {
+			} catch (e) {
 				console.error('Error copying file:', e)
 				errAcc += `Error copying ${from.toString()}: ${e}\n`
 			}
@@ -145,7 +131,6 @@ class ExtensionTransferService extends Disposable implements IExtensionTransferS
 				if (child.isDirectory) {
 					// if is blacklisted
 					if (isBlacklisted(child.resource.fsPath)) {
-						console.log('Deleting extension', child.resource.fsPath)
 						await fileService.del(child.resource, { recursive: true, useTrash: true })
 					}
 				}
@@ -153,7 +138,6 @@ class ExtensionTransferService extends Disposable implements IExtensionTransferS
 					// if is extensions.json
 
 					if (child.name === 'extensions.json') {
-						console.log('Updating extensions.json', child.resource.fsPath)
 						try {
 							const contentsStr = await fileService.readFile(child.resource)
 							const json: any = JSON.parse(contentsStr.value.toString())
@@ -162,7 +146,7 @@ class ExtensionTransferService extends Disposable implements IExtensionTransferS
 							await fileService.writeFile(child.resource, VSBuffer.fromString(jsonStr))
 						}
 						catch {
-							console.log('Error copying extensions.json, skipping')
+							console.error('Error copying extensions.json, skipping')
 						}
 					}
 				}

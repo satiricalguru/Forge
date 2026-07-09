@@ -108,7 +108,7 @@ class MCPService extends Disposable implements IMCPService {
 			const fileExists = await this._configFileExists(mcpConfigUri);
 			if (!fileExists) {
 				await this._createMCPConfigFile(mcpConfigUri);
-				console.log('MCP Config file created:', mcpConfigUri.toString());
+				console.warn('MCP Config file created:', mcpConfigUri.toString());
 			}
 			await this._addMCPConfigFileWatcher();
 			await this._refreshMCPServers();
@@ -264,8 +264,8 @@ class MCPService extends Disposable implements IMCPService {
 		this._setHasError(undefined)
 
 		const newConfigFileJSON = await this._parseMCPConfigFile();
-		if (!newConfigFileJSON) { console.log(`Not setting state: MCP config file not found`); return }
-		if (!newConfigFileJSON?.mcpServers) { console.log(`Not setting state: MCP config file did not have an 'mcpServers' field`); return }
+		if (!newConfigFileJSON) { console.warn(`Not setting state: MCP config file not found`); return }
+		if (!newConfigFileJSON?.mcpServers) { console.warn(`Not setting state: MCP config file did not have an 'mcpServers' field`); return }
 
 
 		const oldConfigFileNames = Object.keys(this.state.mcpServerOfName)

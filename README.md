@@ -49,7 +49,10 @@ Forge uses the open-source **Open VSX Registry** instead of the proprietary Micr
   - ● **Red:** Connection error/offline.
   - ● **Grey:** Disabled/Unknown.
 - **Defence-in-Depth HTTP Guard:** To guarantee your code privacy, Forge's network utilities refuse to send outgoing requests to non-localhost URLs. Your prompt data is physically locked inside your machine.
-- **Agents Window:** A dedicated interface to launch, manage, and inspect autonomous AI coding agents operating on your codebase.
+- **Redesigned Agents Window:** A dedicated 3-panel workspace interface (Copilot-style) to manage autonomous AI coding agents:
+  - **Left Sidebar**: Session thread browser and Customizations panel with quick emojis (Overview, Agents, Skills, Instructions, Hooks, MCP, Plugins, Tools).
+  - **Center Panel**: The core chat stream, welcome roadmap, auto-approval toggles, and token stream.
+  - **Right Sidebar**: Collapsible view tracking Changes and workspace files side-by-side.
 - **React + Tailwind Workbench Integration:** Forge compiles React and scopes Tailwind CSS, making it easy to create beautiful, modern UI components directly inside the IDE layout.
 - **Code Streaming & Diffing:** Inline editing (Cmd+K) and Sidebar Chat (Cmd+L) stream model outputs token-by-token and render side-by-side diffs.
 
@@ -94,7 +97,12 @@ Forge uses the open-source **Open VSX Registry** instead of the proprietary Micr
    ```bash
    npm rebuild
    node build/npm/postinstall.js
-   NODE_OPTIONS="--max-old-space-size=8192" npm run buildreact
+   npm run buildreact
+   ```
+
+5. Compile the main VS Code codebase:
+   ```bash
+   npm run compile
    ```
 
 ### Running Forge in Developer Mode
@@ -128,4 +136,4 @@ Forge extends the VS Code electron-main and renderer architectures:
 
 ## 📄 License
 
-Forge is licensed under the MIT License and contains source code derived from Microsoft VS Code (MIT) and Void (Apache 2.0). See [LICENSE.txt](file:///Users/jatinpandey/Antigravity/Forge/LICENSE.txt) for details.
+Forge is licensed under the MIT License and contains source code derived from Microsoft VS Code (MIT) and Void (Apache 2.0). See [LICENSE.txt](LICENSE.txt) for details.

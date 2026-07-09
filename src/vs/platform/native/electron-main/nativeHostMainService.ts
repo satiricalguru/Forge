@@ -232,10 +232,18 @@ export class NativeHostMainService extends Disposable implements INativeHostMain
 	}
 
 	async openAgentsWindow(windowId: number | undefined): Promise<void> {
-		await this.windowsMainService.openAgentsWindow({
-			context: OpenContext.API,
-			contextWindowId: windowId
-		});
+		this.logService.info('[FORGE][NativeHostMainService] openAgentsWindow called', { windowId });
+		try {
+			await this.windowsMainService.openAgentsWindow({
+				context: OpenContext.API,
+				cli: this.environmentMainService.args,
+				contextWindowId: windowId
+			});
+			this.logService.info('[FORGE][NativeHostMainService] openAgentsWindow completed successfully');
+		} catch (err) {
+			this.logService.error('[FORGE][NativeHostMainService] openAgentsWindow FAILED', err);
+			throw err;
+		}
 	}
 
 	private async doOpenWindow(windowId: number | undefined, toOpen: IWindowOpenable[], options: IOpenWindowOptions = Object.create(null)): Promise<void> {

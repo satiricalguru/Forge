@@ -22,6 +22,7 @@ import { cwd } from '../../../base/common/process.js';
 import { extUriBiasedIgnorePathCase, isEqualAuthority, normalizePath, originalFSPath, removeTrailingPathSeparator } from '../../../base/common/resources.js';
 import { assertIsDefined } from '../../../base/common/types.js';
 import { URI } from '../../../base/common/uri.js';
+import { VSBuffer } from '../../../base/common/buffer.js';
 import { getNLSLanguage, getNLSMessages, localize } from '../../../nls.js';
 import { IBackupMainService } from '../../backup/electron-main/backup.js';
 import { IEmptyWindowBackupInfo } from '../../backup/node/backup.js';
@@ -280,49 +281,7 @@ export class WindowsMainService extends Disposable implements IWindowsMainServic
 		return this.open({ ...openConfig, cli, forceEmpty, forceNewWindow, forceReuseWindow, remoteAuthority, forceTempProfile: options?.forceTempProfile, forceProfile: options?.forceProfile });
 	}
 
-	async openAgentsWindow(openConfig: IOpenEmptyConfiguration): Promise<ICodeWindow> {
-		this.logService.info('[WindowsMainService] openAgentsWindow called.');
-		const existing = this.getWindows().find(w => w.config?.isAgentsWindow);
-		if (existing) {
-			this.logService.info('[WindowsMainService] openAgentsWindow: existing window found, focusing.');
-			existing.focus();
-			return existing;
-		}
 
-		// Reuse the workspace of the window that triggered this (so the Agents
-		// Window has real project context — folder list, FileTree, workspacePath).
-		// Falls back to an empty window when launched without an open workspace.
-		const sourceWindow = (openConfig.contextWindowId !== undefined ? this.getWindowById(openConfig.contextWindowId) : undefined) ?? this.getLastActiveWindow();
-		const workspace = sourceWindow?.openedWorkspace;
-
-		if (workspace) {
-			if (isWorkspaceIdentifier(workspace)) {
-				const [window] = await this.open({
-					...openConfig,
-					cli: { ...this.environmentMainService.args, agents: true },
-					urisToOpen: [{ workspaceUri: workspace.configPath }],
-					forceNewWindow: true,
-				});
-				return window;
-			} else if (isSingleFolderWorkspaceIdentifier(workspace)) {
-				const [window] = await this.open({
-					...openConfig,
-					cli: { ...this.environmentMainService.args, agents: true },
-					urisToOpen: [{ folderUri: workspace.uri }],
-					forceNewWindow: true,
-				});
-				return window;
-			}
-		}
-
-		const [window] = await this.open({
-			...openConfig,
-			cli: { ...this.environmentMainService.args, agents: true },
-			forceEmpty: true,
-			forceNewWindow: true
-		});
-		return window;
-	}
 
 	openExistingWindow(window: ICodeWindow, openConfig: IOpenConfiguration): void {
 
@@ -331,6 +290,48 @@ export class WindowsMainService extends Disposable implements IWindowsMainServic
 
 		// Handle --wait
 		this.handleWaitMarkerFile(openConfig, [window]);
+	}
+
+	async openAgentsWindow(openConfig: IOpenConfiguration, folderUri?: URI, sessionResource?: URI): Promise<ICodeWindow[]> {
+		this.logService.trace('windowsManager#openAgentsWindow');
+
+		// Open in a new browser window with the agent sessions workspace
+		const windows = await this.open(await this.ensureAgentsWindow(openConfig));
+
+		// Single IPC carrying the folder to pre-select and an optional existing-
+		// session resource to open. The handler in the agents window sequences
+		// them (folder → open session) so the session-open doesn't race the
+		// folder-resolve.
+		if ((folderUri || sessionResource) && windows.length > 0) {
+			windows[0].sendWhenReady('vscode:selectAgentsFolder', CancellationToken.None, folderUri?.toJSON(), sessionResource?.toJSON());
+		}
+
+		return windows;
+	}
+
+	private async ensureAgentsWindow(openConfig: IOpenConfiguration): Promise<IOpenConfiguration> {
+		const agentSessionsWorkspaceUri = this.environmentMainService.agentSessionsWorkspace;
+		if (!agentSessionsWorkspaceUri) {
+			throw new Error('Agents workspace is not configured');
+		}
+
+		// Ensure the workspace file exists
+		const workspaceExists = await this.fileService.exists(agentSessionsWorkspaceUri);
+		if (!workspaceExists) {
+			const emptyWorkspaceContent = JSON.stringify({ folders: [] }, null, '\t');
+			await this.fileService.writeFile(agentSessionsWorkspaceUri, VSBuffer.fromString(emptyWorkspaceContent));
+		}
+
+		return {
+			urisToOpen: [{ workspaceUri: agentSessionsWorkspaceUri }],
+			userEnv: openConfig.userEnv,
+			cli: openConfig.cli,
+			noRecentEntry: true,
+			context: openConfig.context,
+			contextWindowId: openConfig.contextWindowId,
+			initialStartup: openConfig.initialStartup,
+			forceNewWindow: true,
+		};
 	}
 
 	async open(openConfig: IOpenConfiguration): Promise<ICodeWindow[]> {
@@ -537,6 +538,9 @@ export class WindowsMainService extends Disposable implements IWindowsMainServic
 			}
 		}
 
+		const isOpeningAgentsWindow = openConfig.cli?.agents === true;
+		const candidateWindows = this.getWindows().filter(w => (w.config?.isAgentsWindow === true) === isOpeningAgentsWindow);
+
 		// Settings can decide if files/folders open in new window or not
 		let { openFolderInNewWindow, openFilesInNewWindow } = this.shouldOpenNewWindow(openConfig);
 
@@ -557,8 +561,8 @@ export class WindowsMainService extends Disposable implements IWindowsMainServic
 			// Find suitable window or folder path to open files in
 			const fileToCheck: IPath<IEditorOptions> | undefined = filesToOpen.filesToOpenOrCreate[0] || filesToOpen.filesToDiff[0] || filesToOpen.filesToMerge[3] /* [3] is the resulting merge file */;
 
-			// only look at the windows with correct authority
-			const windows = this.getWindows().filter(window => filesToOpen && isEqualAuthority(window.remoteAuthority, filesToOpen.remoteAuthority));
+			// only look at the windows with correct authority and agents window state
+			const windows = candidateWindows.filter(window => filesToOpen && isEqualAuthority(window.remoteAuthority, filesToOpen.remoteAuthority));
 
 			// figure out a good window to open the files in if any
 			// with a fallback to the last active window.
@@ -616,7 +620,7 @@ export class WindowsMainService extends Disposable implements IWindowsMainServic
 		if (allWorkspacesToOpen.length > 0) {
 
 			// Check for existing instances
-			const windowsOnWorkspace = coalesce(allWorkspacesToOpen.map(workspaceToOpen => findWindowOnWorkspaceOrFolder(this.getWindows(), workspaceToOpen.workspace.configPath)));
+			const windowsOnWorkspace = coalesce(allWorkspacesToOpen.map(workspaceToOpen => findWindowOnWorkspaceOrFolder(candidateWindows, workspaceToOpen.workspace.configPath)));
 			if (windowsOnWorkspace.length > 0) {
 				const windowOnWorkspace = windowsOnWorkspace[0];
 				const filesToOpenInWindow = isEqualAuthority(filesToOpen?.remoteAuthority, windowOnWorkspace.remoteAuthority) ? filesToOpen : undefined;
@@ -648,7 +652,7 @@ export class WindowsMainService extends Disposable implements IWindowsMainServic
 		if (allFoldersToOpen.length > 0) {
 
 			// Check for existing instances
-			const windowsOnFolderPath = coalesce(allFoldersToOpen.map(folderToOpen => findWindowOnWorkspaceOrFolder(this.getWindows(), folderToOpen.workspace.uri)));
+			const windowsOnFolderPath = coalesce(allFoldersToOpen.map(folderToOpen => findWindowOnWorkspaceOrFolder(candidateWindows, folderToOpen.workspace.uri)));
 			if (windowsOnFolderPath.length > 0) {
 				const windowOnFolderPath = windowsOnFolderPath[0];
 				const filesToOpenInWindow = isEqualAuthority(filesToOpen?.remoteAuthority, windowOnFolderPath.remoteAuthority) ? filesToOpen : undefined;
@@ -1548,7 +1552,7 @@ export class WindowsMainService extends Disposable implements IWindowsMainServic
 
 			product,
 			isInitialStartup: options.initialStartup,
-			isAgentsWindow: options.isAgentsWindow || options.cli?.agents,
+			isAgentsWindow: options.isAgentsWindow || options.cli?.agents || (isWorkspaceIdentifier(options.workspace) && extUriBiasedIgnorePathCase.isEqual(options.workspace.configPath, this.environmentMainService.agentSessionsWorkspace)),
 			perfMarks: getMarks(),
 			os: { release: release(), hostname: hostname(), arch: arch() },
 

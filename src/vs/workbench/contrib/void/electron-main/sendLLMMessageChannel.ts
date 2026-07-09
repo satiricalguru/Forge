@@ -75,28 +75,23 @@ export class LLMMessageChannel implements IServerChannel {
 
 	// browser uses this to call (see this.channel.call() in llmMessageService.ts for all usages)
 	async call(_: unknown, command: string, params: any): Promise<any> {
-		try {
-			if (command === 'sendLLMMessage') {
-				this._callSendLLMMessage(params)
-			}
-			else if (command === 'abort') {
-				await this._callAbort(params)
-			}
-			else if (command === 'ollamaList') {
-				this._callOllamaList(params)
-			}
-			else if (command === 'openAICompatibleList') {
-				this._callOpenAICompatibleList(params)
-			}
-			else if (command === 'pullOllamaModel') {
-				this._callPullOllamaModel(params)
-			}
-			else {
-				throw new Error(`Void sendLLM: command "${command}" not recognized.`)
-			}
+		if (command === 'sendLLMMessage') {
+			this._callSendLLMMessage(params)
 		}
-		catch (e) {
-			console.log('llmMessageChannel: Call Error:', e)
+		else if (command === 'abort') {
+			await this._callAbort(params)
+		}
+		else if (command === 'ollamaList') {
+			this._callOllamaList(params)
+		}
+		else if (command === 'openAICompatibleList') {
+			this._callOpenAICompatibleList(params)
+		}
+		else if (command === 'pullOllamaModel') {
+			this._callPullOllamaModel(params)
+		}
+		else {
+			throw new Error(`Void sendLLM: command "${command}" not recognized.`)
 		}
 	}
 

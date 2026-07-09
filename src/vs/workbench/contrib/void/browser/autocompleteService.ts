@@ -678,19 +678,12 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		// if there is a cached autocompletion, return it
 		if (cachedAutocompletion && autocompletionMatchup) {
 
-			console.log('AA')
-
-
-			// console.log('id: ' + cachedAutocompletion.id)
-
 			if (cachedAutocompletion.status === 'finished') {
-				console.log('A1')
 
 				const inlineCompletions = toInlineCompletions({ autocompletionMatchup, autocompletion: cachedAutocompletion, prefixAndSuffix, position, debug: true })
 				return inlineCompletions
 
 			} else if (cachedAutocompletion.status === 'pending') {
-				console.log('A2')
 
 				try {
 					await cachedAutocompletion.llmPromise;
@@ -702,10 +695,6 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 					console.error('Error creating autocompletion (1): ' + e)
 				}
 
-			} else if (cachedAutocompletion.status === 'error') {
-				console.log('A3')
-			} else {
-				console.log('A4')
 			}
 
 			return []

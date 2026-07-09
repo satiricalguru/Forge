@@ -40,6 +40,9 @@ import './terminalToolService.js'
 // register Thread History
 import './chatThreadService.js'
 
+// register Agents Window UI
+import './agentsWindow.contribution.js'
+
 // ping — telemetry disabled for Forge
 // import './metricsPollService.js'
 
@@ -56,7 +59,7 @@ import './tooltipService.js'
 import './voidOnboardingService.js'
 
 // register misc service
-import './miscWokrbenchContrib.js'
+import './miscWorkbenchContrib.js'
 
 // register file service (for explorer context menu)
 import './fileService.js'
@@ -92,6 +95,7 @@ import '../common/skillsService.js'
 import '../common/hardwareService.js'
 import '../common/sessionRegistryService.js'
 import './agentsWindowActions.js'
+import '../common/forgeLanguageModelBridge.js'
 
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IConfigurationRegistry, Extensions as ConfigurationExtensions } from '../../../../platform/configuration/common/configurationRegistry.js';

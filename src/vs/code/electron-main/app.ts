@@ -1296,7 +1296,7 @@ export class CodeApplication extends Disposable {
 		const args = this.environmentMainService.args;
 
 		if (args.agents) {
-			return [await windowsMainService.openAgentsWindow({ context })];
+			return await windowsMainService.openAgentsWindow({ context, cli: args });
 		}
 
 		// First check for windows from protocol links to open

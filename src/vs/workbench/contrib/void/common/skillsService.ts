@@ -39,7 +39,7 @@ export class SkillsService implements ISkillsService {
 		setTimeout(() => {
 			this.getSkills([]).then(skills => {
 				this._cachedSkills = skills;
-			}).catch(() => {});
+			}).catch(err => console.warn('[SkillsService] Cache refresh failed:', err));
 		}, 3000);
 	}
 
@@ -53,7 +53,7 @@ export class SkillsService implements ISkillsService {
 	matchSkills(userPrompt: string, workspacePaths: string[]): Promise<ISkill[]> {
 		return this._proxy.matchSkills(userPrompt, workspacePaths).then(skills => {
 			// Update cache if we matched them (since this loads them)
-			this.getSkills(workspacePaths).catch(() => {});
+			this.getSkills(workspacePaths).catch(err => console.warn('[SkillsService] Cache update after match failed:', err));
 			return skills;
 		});
 	}

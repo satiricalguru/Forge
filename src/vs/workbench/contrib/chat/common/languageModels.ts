@@ -178,6 +178,14 @@ export interface ILanguageModelsService {
 
 	registerLanguageModelChat(identifier: string, provider: ILanguageModelChat): IDisposable;
 
+	/**
+	 * Forge: Register a vendor directly from trusted workbench code, bypassing
+	 * the extension-point check. This is used by the Forge local-LLM bridge so
+	 * that Ollama/LM-Studio/etc. models appear in VS Code's native chat UI
+	 * without requiring an extension host.
+	 */
+	registerVendorDirect(vendor: string): IDisposable;
+
 	sendChatRequest(identifier: string, from: ExtensionIdentifier, messages: IChatMessage[], options: { [name: string]: any }, token: CancellationToken): Promise<ILanguageModelChatResponse>;
 
 	computeTokenLength(identifier: string, message: string | IChatMessage, token: CancellationToken): Promise<number>;
@@ -319,6 +327,18 @@ export class LanguageModelsService implements ILanguageModelsService {
 		this._logService.trace('[LM] selected language models', selector, result);
 
 		return result;
+	}
+
+	/**
+	 * Forge: allow trusted workbench code to register a vendor without going
+	 * through the extension-point machinery (which requires 'chatProvider' proposal
+	 * and an actual extension). Returns a disposable that unregisters the vendor.
+	 */
+	registerVendorDirect(vendor: string): IDisposable {
+		this._vendors.add(vendor);
+		return toDisposable(() => {
+			this._vendors.delete(vendor);
+		});
 	}
 
 	registerLanguageModelChat(identifier: string, provider: ILanguageModelChat): IDisposable {

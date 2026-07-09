@@ -122,8 +122,6 @@ const container = viewContainerRegistry.registerViewContainer({
 
 }, ViewContainerLocation.AuxiliaryBar, { doNotRegisterOpenCommand: true, isDefault: true });
 
-
-
 // Register search default location to the container (sidebar)
 const viewsRegistry = Registry.as<IViewsRegistry>(ViewExtensions.ViewsRegistry);
 viewsRegistry.registerViews([{
@@ -146,7 +144,6 @@ viewsRegistry.registerViews([{
 	// 	order: 1
 	// },
 }], container);
-
 
 // open sidebar
 export const VOID_OPEN_SIDEBAR_ACTION_ID = 'void.openSidebar'

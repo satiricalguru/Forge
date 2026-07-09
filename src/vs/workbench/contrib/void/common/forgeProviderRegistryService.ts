@@ -14,6 +14,9 @@ import { ProviderName, SettingsAtProvider } from './voidSettingsTypes.js';
 
 const HEALTH_CHECK_INTERVAL_MS = 7_000;
 const HEALTH_PROBE_TIMEOUT_MS = 2_500;
+const BACKOFF_BASE_MS = 7_000;
+const BACKOFF_MAX_MS = 120_000;
+const BACKOFF_MULTIPLIER = 2;
 
 
 export class LocalProviderRegistryService extends Disposable implements ILocalProviderRegistryService {
@@ -26,6 +29,9 @@ export class LocalProviderRegistryService extends Disposable implements ILocalPr
 	private readonly _health = new Map<string, ProviderHealth>();
 	private _discoveryTimer: NodeJS.Timeout | null = null;
 	private _activeProbe: CancellationTokenSource | null = null;
+
+	/** Per-provider backoff state keyed by provider id */
+	private readonly _backoffOfProviderId = new Map<string, { attempt: number; nextProbeAt: number }>();
 
 	constructor(
 		@ILocalProviderRegistry private readonly registry: ILocalProviderRegistry,
@@ -50,6 +56,7 @@ export class LocalProviderRegistryService extends Disposable implements ILocalPr
 	async forceCheck(providerId: string): Promise<ProviderHealth> {
 		const provider = this.registry.get(providerId);
 		if (!provider) return { status: 'unknown' };
+		this._backoffOfProviderId.delete(providerId);
 		return this._probe(provider);
 	}
 
@@ -70,15 +77,19 @@ export class LocalProviderRegistryService extends Disposable implements ILocalPr
 		}
 		const cts = new CancellationTokenSource();
 		this._activeProbe = cts;
+		const now = Date.now();
 
 		for (const provider of this.registry.all()) {
 			if (cts.token.isCancellationRequested) return;
+
+			const backoff = this._backoffOfProviderId.get(provider.id);
+			if (backoff && now < backoff.nextProbeAt) continue;
+
 			await this._probe(provider, cts.token);
 		}
 	}
 
 	private async _probe(provider: ILocalProvider, outerToken?: CancellationToken): Promise<ProviderHealth> {
-		// mark checking
 		this._setHealth(provider.id, { status: 'checking' });
 
 		const localCts = new CancellationTokenSource(outerToken);
@@ -89,23 +100,36 @@ export class LocalProviderRegistryService extends Disposable implements ILocalPr
 			const result = await provider.healthcheck(localCts.token);
 			const latency = Date.now() - start;
 			clearTimeout(timer);
+			localCts.dispose();
 
 			let health: ProviderHealth;
 			if (result.status === 'healthy') {
 				health = { status: 'healthy', latencyMs: latency, models: result.models };
+				this._backoffOfProviderId.delete(provider.id);
 			} else if (result.status === 'unhealthy') {
 				health = { status: 'unhealthy', error: result.error, latencyMs: latency };
+				this._scheduleBackoff(provider.id);
 			} else {
 				health = result;
+				this._scheduleBackoff(provider.id);
 			}
 			this._setHealth(provider.id, health);
 			return health;
 		} catch (err) {
 			clearTimeout(timer);
+			localCts.dispose();
 			const health: ProviderHealth = { status: 'unhealthy', error: (err instanceof Error ? err.message : String(err)), latencyMs: Date.now() - start };
 			this._setHealth(provider.id, health);
+			this._scheduleBackoff(provider.id);
 			return health;
 		}
+	}
+
+	private _scheduleBackoff(providerId: string): void {
+		const current = this._backoffOfProviderId.get(providerId);
+		const attempt = (current?.attempt ?? 0) + 1;
+		const delay = Math.min(BACKOFF_BASE_MS * Math.pow(BACKOFF_MULTIPLIER, attempt - 1), BACKOFF_MAX_MS);
+		this._backoffOfProviderId.set(providerId, { attempt, nextProbeAt: Date.now() + delay });
 	}
 
 	private _setHealth(providerId: string, health: ProviderHealth): void {

@@ -127,7 +127,7 @@ export class SessionRegistryMainService implements ISessionRegistryService {
 				try {
 					const raw = await fs.promises.readFile(filePath, 'utf8');
 					existingData = JSON.parse(raw);
-				} catch { /* ignore parse error */ }
+				} catch { /* existing file may be corrupt or empty */ }
 			}
 
 			const merged = {
@@ -151,6 +151,7 @@ export class SessionRegistryMainService implements ISessionRegistryService {
 			};
 
 			await fs.promises.writeFile(filePath, JSON.stringify(merged, null, 2), 'utf8');
+			await fs.promises.chmod(filePath, 0o600);
 		} catch (err) {
 			console.error(`[SessionRegistry] Failed to persist session ${session.id}:`, err);
 		}

@@ -46,8 +46,8 @@ export function bindForgeProviderEndpoint(provider: ILocalProvider, userEndpoint
 
 
 function userEndpointOf(providerName: ProviderName, settings: SettingsOfProvider): string | undefined {
-	const cfg = settings[providerName] as { endpoint?: string };
-	return cfg.endpoint;
+	const cfg = settings[providerName] as { endpoint?: string } | undefined;
+	return cfg?.endpoint;
 }
 
 
@@ -74,7 +74,7 @@ export function resolveForgeProvider(providerName: ProviderName, settingsOfProvi
 			apiKey: cfg.apiKey || 'noop',
 		});
 		if (headers) provider.customHeaders = headers;
-		return bindForgeProviderEndpoint(provider, userEndpoint);
+		return provider;
 	}
 
 	return undefined;

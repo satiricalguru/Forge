@@ -10,6 +10,11 @@ import { RemoteNameContext } from '../../../common/contextkeys.js';
 import { ChatAgentLocation, ChatConfiguration, ChatMode } from './constants.js';
 
 export namespace ChatContextKeys {
+
+	export const agentSessionsViewerVisible = new RawContextKey<boolean>('agentSessionsViewerVisible', false);
+	export const agentSessionsViewerFocused = new RawContextKey<boolean>('agentSessionsViewerFocused', false);
+	export const hasAgentSessions = new RawContextKey<boolean>('hasAgentSessions', false);
+
 	export const responseVote = new RawContextKey<string>('chatSessionResponseVote', '', { type: 'string', description: localize('interactiveSessionResponseVote', "When the response has been voted up, is set to 'up'. When voted down, is set to 'down'. Otherwise an empty string.") });
 	export const responseDetectedAgentCommand = new RawContextKey<boolean>('chatSessionResponseDetectedAgentOrCommand', false, { type: 'boolean', description: localize('chatSessionResponseDetectedAgentOrCommand', "When the agent or command was automatically detected") });
 	export const responseSupportsIssueReporting = new RawContextKey<boolean>('chatResponseSupportsIssueReporting', false, { type: 'boolean', description: localize('chatResponseSupportsIssueReporting', "True when the current chat response supports issue reporting.") });

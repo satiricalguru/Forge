@@ -90,6 +90,9 @@ export interface IEnvironmentService {
 	// --- Policy
 	policyFile?: URI;
 
+	// --- Agents
+	agentSessionsWorkspace: URI;
+
 	// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 	//
 	// NOTE: KEEP THIS INTERFACE AS SMALL AS POSSIBLE.

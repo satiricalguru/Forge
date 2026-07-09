@@ -173,9 +173,8 @@ export class MCPChannel implements IServerChannel {
 			try {
 				transport = new StreamableHTTPClientTransport(server.url);
 				await client.connect(transport);
-				console.log(`Connected via HTTP to ${serverName}`);
 				const { tools } = await client.listTools()
-				const toolsWithUniqueName = tools.map(({ name, ...rest }) => ({ name: this._addUniquePrefix(name), ...rest }))
+				const toolsWithUniqueName = tools.map(({ name, ...rest }) => ({ name: this._addUniquePrefix(serverName, name), ...rest }))
 				info = {
 					status: isOn ? 'success' : 'offline',
 					tools: toolsWithUniqueName,
@@ -186,8 +185,7 @@ export class MCPChannel implements IServerChannel {
 				transport = new SSEClientTransport(server.url);
 				await client.connect(transport);
 				const { tools } = await client.listTools()
-				const toolsWithUniqueName = tools.map(({ name, ...rest }) => ({ name: this._addUniquePrefix(name), ...rest }))
-				console.log(`Connected via SSE to ${serverName}`);
+				const toolsWithUniqueName = tools.map(({ name, ...rest }) => ({ name: this._addUniquePrefix(serverName, name), ...rest }))
 				info = {
 					status: isOn ? 'success' : 'offline',
 					tools: toolsWithUniqueName,
@@ -195,21 +193,29 @@ export class MCPChannel implements IServerChannel {
 				}
 			}
 		} else if (server.command) {
-			// console.log('ENV DATA: ', server.env)
+			// Only forward safe, non-sensitive environment variables to MCP subprocesses
+			const SAFE_ENV_KEYS = new Set([
+				'HOME', 'USER', 'USERNAME', 'PATH', 'TMPDIR', 'TEMP', 'TMP',
+				'LANG', 'LC_ALL', 'LC_CTYPE', 'SHELL', 'TERM', 'TERM_PROGRAM',
+				'PWD', 'OLDPWD',
+			]);
+			const filteredEnv: Record<string, string> = { ...server.env };
+			for (const key of SAFE_ENV_KEYS) {
+				if (process.env[key] !== undefined && filteredEnv[key] === undefined) {
+					filteredEnv[key] = process.env[key]!;
+				}
+			}
 			transport = new StdioClientTransport({
 				command: server.command,
 				args: server.args,
-				env: {
-					...server.env,
-					...process.env
-				} as Record<string, string>,
+				env: filteredEnv,
 			});
 
 			await client.connect(transport)
 
 			// Get the tools from the server
 			const { tools } = await client.listTools()
-			const toolsWithUniqueName = tools.map(({ name, ...rest }) => ({ name: this._addUniquePrefix(name), ...rest }))
+			const toolsWithUniqueName = tools.map(({ name, ...rest }) => ({ name: this._addUniquePrefix(serverName, name), ...rest }))
 
 			// Create a full command string for display
 			const fullCommand = `${server.command} ${server.args?.join(' ') || ''}`
@@ -229,8 +235,16 @@ export class MCPChannel implements IServerChannel {
 		return { _client: client, mcpServerEntryJSON: server, mcpServer: info }
 	}
 
-	private _addUniquePrefix(base: string) {
-		return `${Math.random().toString(36).slice(2, 8)}_${base}`;
+	private _serverNameToPrefix(serverName: string): string {
+		let hash = 5381;
+		for (let i = 0; i < serverName.length; i++) {
+			hash = (hash * 33) ^ serverName.charCodeAt(i);
+		}
+		return `${(hash >>> 0).toString(36).slice(0, 6)}`;
+	}
+
+	private _addUniquePrefix(serverName: string, toolName: string) {
+		return `${this._serverNameToPrefix(serverName)}_${toolName}`;
 	}
 
 	private async _createClient(serverConfig: MCPConfigFileEntryJSON, serverName: string, isOn = true): Promise<ClientInfo> {
@@ -250,7 +264,6 @@ export class MCPChannel implements IServerChannel {
 			await this._closeClient(serverName)
 			delete this.infoOfClientId[serverName]
 		}
-		console.log('Closed all MCP servers');
 	}
 
 	private async _closeClient(serverName: string) {
@@ -260,7 +273,6 @@ export class MCPChannel implements IServerChannel {
 		if (client) {
 			await client.close()
 		}
-		console.log(`Closed MCP server ${serverName}`);
 	}
 
 

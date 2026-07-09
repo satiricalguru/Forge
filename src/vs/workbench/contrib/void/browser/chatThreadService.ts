@@ -44,6 +44,8 @@ import { getModelCapabilities } from '../common/modelCapabilities.js';
 import { IPathService } from '../../../services/path/common/pathService.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { joinPath } from '../../../../base/common/resources.js';
+import { ISessionRegistryService } from '../common/sessionRegistryTypes.js';
+import { INativeWorkbenchEnvironmentService } from '../../../services/environment/electron-sandbox/environmentService.js';
 
 
 // related to retrying when LLM message has error
@@ -125,6 +127,7 @@ export type ThreadType = {
 	filesWithUserChanges: Set<string>;
 	agentType?: 'interactive' | 'background';
 	isAuto?: boolean;
+	workspacePath?: string;
 
 	// this doesn't need to go in a state object, but feels right
 	state: {
@@ -212,7 +215,7 @@ export type ThreadStreamState = {
 	}
 }
 
-const newThreadObject = (opts?: { agentType?: 'interactive' | 'background'; isAuto?: boolean }) => {
+const newThreadObject = (opts?: { agentType?: 'interactive' | 'background'; isAuto?: boolean; workspacePath?: string }) => {
 	const now = new Date().toISOString()
 	return {
 		id: generateUuid(),
@@ -221,6 +224,7 @@ const newThreadObject = (opts?: { agentType?: 'interactive' | 'background'; isAu
 		messages: [],
 		agentType: opts?.agentType ?? 'interactive',
 		isAuto: opts?.isAuto ?? false,
+		workspacePath: opts?.workspacePath,
 		state: {
 			currCheckpointIdx: null,
 			stagingSelections: [],
@@ -338,6 +342,8 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@IMCPService private readonly _mcpService: IMCPService,
 		@ILocalProviderRegistryService private readonly _forgeProviderService: ILocalProviderRegistryService,
 		@IPathService private readonly _pathService: IPathService,
+		@ISessionRegistryService private readonly _sessionRegistryService: ISessionRegistryService,
+		@INativeWorkbenchEnvironmentService private readonly _environmentService: INativeWorkbenchEnvironmentService,
 	) {
 		super()
 		this.state = { allThreads: {}, currentThreadId: null as unknown as string } // default state
@@ -350,12 +356,11 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 			currentThreadId: null as unknown as string, // gets set in startNewThread()
 		}
 
-		// Initial load from .forge/sessions and poll every 2s
+		// Initial load from .forge/sessions
 		void this._loadThreadsFromForgeSessions();
-		const intervalId = setInterval(() => {
+		this._register(this._sessionRegistryService.onDidChangeSessions(() => {
 			void this._loadThreadsFromForgeSessions();
-		}, 2000);
-		this._register({ dispose: () => clearInterval(intervalId) });
+		}));
 
 		// always be in a thread
 		this.openNewThread()
@@ -461,29 +466,45 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	private async _saveThreadToForgeSessions(thread: ThreadType) {
 		try {
 			const workspace = this._workspaceContextService.getWorkspace();
-			const workspacePath = workspace.folders[0]?.uri.fsPath || 'empty';
-			const workspaceHash = this._getWorkspaceHash();
+			const workspacePath = thread.workspacePath || workspace.folders[0]?.uri.fsPath || 'empty';
+			
+			let hashVal = 5381;
+			for (let i = 0; i < workspacePath.length; i++) {
+				hashVal = (hashVal * 33) ^ workspacePath.charCodeAt(i);
+			}
+			const workspaceHash = (hashVal >>> 0).toString(16);
+
 			const userHome = this._pathService.userHome({ preferLocal: true });
 			const sessionsDirURI = joinPath(userHome, '.forge', 'sessions', workspaceHash);
 			const sessionFileURI = joinPath(sessionsDirURI, `${thread.id}.json`);
+
+			// Read existing file if any, to preserve metadata updated by SessionRegistryMainService
+			let existingJSON: any = {};
+			if (await this._fileService.exists(sessionFileURI)) {
+				try {
+					const fileContent = await this._fileService.readFile(sessionFileURI);
+					existingJSON = JSON.parse(fileContent.value.toString()) || {};
+				} catch { /* ignore if corrupt */ }
+			}
 
 			const firstMessage = thread.messages[0];
 			const firstMessageContent = firstMessage && (firstMessage.role === 'user' || firstMessage.role === 'tool') ? firstMessage.content : '';
 
 			// Reconstruct session data
 			const sessionJSON = {
+				...existingJSON,
 				id: thread.id,
-				title: firstMessageContent.slice(0, 50) || 'New Session',
-				createdAt: thread.createdAt,
+				title: existingJSON.title || firstMessageContent.slice(0, 50) || 'New Session',
+				createdAt: thread.createdAt || existingJSON.createdAt,
 				lastModified: new Date().toISOString(),
-				agentType: thread.agentType || 'interactive',
-				isAuto: thread.isAuto !== undefined ? thread.isAuto : false,
-				prompt: firstMessageContent,
+				agentType: thread.agentType || existingJSON.agentType || 'interactive',
+				isAuto: thread.isAuto !== undefined ? thread.isAuto : (existingJSON.isAuto !== undefined ? existingJSON.isAuto : false),
+				prompt: firstMessageContent || existingJSON.prompt || '',
 				messages: thread.messages,
 				workspacePath: workspacePath
 			};
 
-			await this._fileService.createFolder(sessionsDirURI).catch(() => {});
+			await this._fileService.createFolder(sessionsDirURI).catch(() => { /* folder may already exist */ });
 			await this._fileService.writeFile(sessionFileURI, VSBuffer.fromString(JSON.stringify(sessionJSON, null, 2)));
 		} catch (err) {
 			console.error('Failed to save thread to .forge/sessions:', err);
@@ -492,7 +513,16 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 	private async _deleteThreadFromForgeSessions(threadId: string) {
 		try {
-			const workspaceHash = this._getWorkspaceHash();
+			const thread = this.state.allThreads[threadId];
+			const workspace = this._workspaceContextService.getWorkspace();
+			const workspacePath = thread?.workspacePath || workspace.folders[0]?.uri.fsPath || 'empty';
+			
+			let hashVal = 5381;
+			for (let i = 0; i < workspacePath.length; i++) {
+				hashVal = (hashVal * 33) ^ workspacePath.charCodeAt(i);
+			}
+			const workspaceHash = (hashVal >>> 0).toString(16);
+
 			const userHome = this._pathService.userHome({ preferLocal: true });
 			const sessionFileURI = joinPath(userHome, '.forge', 'sessions', workspaceHash, `${threadId}.json`);
 			if (await this._fileService.exists(sessionFileURI)) {
@@ -505,60 +535,119 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 	private async _loadThreadsFromForgeSessions() {
 		try {
-			const workspaceHash = this._getWorkspaceHash();
 			const userHome = this._pathService.userHome({ preferLocal: true });
-			const sessionsDirURI = joinPath(userHome, '.forge', 'sessions', workspaceHash);
+			const sessionsDirURI = joinPath(userHome, '.forge', 'sessions');
 
 			if (!await this._fileService.exists(sessionsDirURI)) {
 				return;
 			}
 
-			const stat = await this._fileService.resolve(sessionsDirURI);
-			if (stat.children) {
-				const loadedThreads: ChatThreads = { ...this.state.allThreads };
-				let changed = false;
-				for (const child of stat.children) {
-					if (child.name.endsWith('.json')) {
-						try {
-							const fileContent = await this._fileService.readFile(child.resource);
-							const sessionJSON = JSON.parse(fileContent.value.toString());
-							if (sessionJSON && sessionJSON.id) {
-								const existing = loadedThreads[sessionJSON.id];
-								if (!existing || existing.lastModified !== sessionJSON.lastModified) {
-									loadedThreads[sessionJSON.id] = {
-										id: sessionJSON.id,
-										createdAt: sessionJSON.createdAt || new Date().toISOString(),
-										lastModified: sessionJSON.lastModified || new Date().toISOString(),
-										messages: sessionJSON.messages || [],
-										filesWithUserChanges: existing?.filesWithUserChanges || new Set(),
-										agentType: sessionJSON.agentType,
-										isAuto: sessionJSON.isAuto,
-										state: existing?.state || {
-											currCheckpointIdx: null,
-											stagingSelections: [],
-											focusedMessageIdx: undefined,
-											linksOfMessageIdx: {},
+			const isAgentsWindow = this._environmentService.window?.isAgentsWindow;
+
+			const loadedThreads: ChatThreads = { ...this.state.allThreads };
+			let changed = false;
+
+			if (isAgentsWindow) {
+				// Load all sessions from all workspace directories
+				const rootStat = await this._fileService.resolve(sessionsDirURI);
+				if (rootStat.children) {
+					for (const wsDir of rootStat.children) {
+						if (wsDir.isDirectory) {
+							try {
+								const wsStat = await this._fileService.resolve(wsDir.resource);
+								if (wsStat.children) {
+									for (const child of wsStat.children) {
+										if (child.name.endsWith('.json')) {
+											try {
+												const fileContent = await this._fileService.readFile(child.resource);
+												const sessionJSON = JSON.parse(fileContent.value.toString());
+												if (sessionJSON && sessionJSON.id) {
+													const existing = loadedThreads[sessionJSON.id];
+													if (!existing || existing.lastModified !== sessionJSON.lastModified) {
+														loadedThreads[sessionJSON.id] = {
+															id: sessionJSON.id,
+															createdAt: sessionJSON.createdAt || new Date().toISOString(),
+															lastModified: sessionJSON.lastModified || new Date().toISOString(),
+															messages: sessionJSON.messages || [],
+															filesWithUserChanges: existing?.filesWithUserChanges || new Set(),
+															agentType: sessionJSON.agentType,
+															isAuto: sessionJSON.isAuto,
+															workspacePath: sessionJSON.workspacePath,
+															state: existing?.state || {
+																currCheckpointIdx: null,
+																stagingSelections: [],
+																focusedMessageIdx: undefined,
+																linksOfMessageIdx: {},
+															}
+														};
+														changed = true;
+													}
+												}
+											} catch (e) {
+												// Ignore parsing errors for in-progress writes
+											}
 										}
-									};
-									changed = true;
+									}
 								}
+							} catch (e) {
+								// Ignore resolve errors for individual workspace dirs
 							}
-						} catch (e) {
-							// Ignore parsing errors for in-progress writes
 						}
 					}
 				}
-				if (changed) {
-					// Update storage
-					const serializedThreads = JSON.stringify(loadedThreads);
-					this._storageService.store(
-						THREAD_STORAGE_KEY,
-						serializedThreads,
-						StorageScope.APPLICATION,
-						StorageTarget.USER
-					);
-					this._setState({ allThreads: loadedThreads });
+			} else {
+				// Only load current workspace sessions
+				const workspaceHash = this._getWorkspaceHash();
+				const workspaceSessionsDirURI = joinPath(sessionsDirURI, workspaceHash);
+				if (await this._fileService.exists(workspaceSessionsDirURI)) {
+					const stat = await this._fileService.resolve(workspaceSessionsDirURI);
+					if (stat.children) {
+						for (const child of stat.children) {
+							if (child.name.endsWith('.json')) {
+								try {
+									const fileContent = await this._fileService.readFile(child.resource);
+									const sessionJSON = JSON.parse(fileContent.value.toString());
+									if (sessionJSON && sessionJSON.id) {
+										const existing = loadedThreads[sessionJSON.id];
+										if (!existing || existing.lastModified !== sessionJSON.lastModified) {
+											loadedThreads[sessionJSON.id] = {
+												id: sessionJSON.id,
+												createdAt: sessionJSON.createdAt || new Date().toISOString(),
+												lastModified: sessionJSON.lastModified || new Date().toISOString(),
+												messages: sessionJSON.messages || [],
+												filesWithUserChanges: existing?.filesWithUserChanges || new Set(),
+												agentType: sessionJSON.agentType,
+												isAuto: sessionJSON.isAuto,
+												workspacePath: sessionJSON.workspacePath,
+												state: existing?.state || {
+													currCheckpointIdx: null,
+													stagingSelections: [],
+													focusedMessageIdx: undefined,
+													linksOfMessageIdx: {},
+												}
+											};
+											changed = true;
+										}
+									}
+								} catch (e) {
+									// Ignore parsing errors
+								}
+							}
+						}
+					}
 				}
+			}
+
+			if (changed) {
+				// Update storage
+				const serializedThreads = JSON.stringify(loadedThreads);
+				this._storageService.store(
+					THREAD_STORAGE_KEY,
+					serializedThreads,
+					StorageScope.APPLICATION,
+					StorageTarget.USER
+				);
+				this._setState({ allThreads: loadedThreads });
 			}
 		} catch (err) {
 			console.error('Failed to load threads from .forge/sessions:', err);
@@ -1787,7 +1876,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 	}
 
 
-	openNewThread(opts?: { agentType?: 'interactive' | 'background'; isAuto?: boolean }): void {
+	openNewThread(opts?: { agentType?: 'interactive' | 'background'; isAuto?: boolean; workspacePath?: string }): void {
 		// if a thread with 0 messages already exists, switch to it
 		const { allThreads: currentThreads } = this.state
 		for (const threadId in currentThreads) {
@@ -1796,6 +1885,7 @@ We only need to do it for files that were edited since `from`, ie files between 
 				if (opts) {
 					currentThreads[threadId]!.agentType = opts.agentType ?? currentThreads[threadId]!.agentType;
 					currentThreads[threadId]!.isAuto = opts.isAuto ?? currentThreads[threadId]!.isAuto;
+					currentThreads[threadId]!.workspacePath = opts.workspacePath ?? currentThreads[threadId]!.workspacePath;
 					this._storeAllThreads(currentThreads);
 					this._setState({ allThreads: currentThreads, currentThreadId: threadId });
 				} else {

@@ -34,6 +34,7 @@ export const TemporaryWorkspaceContext = new RawContextKey<boolean>('temporaryWo
 
 export const IsMainWindowFullscreenContext = new RawContextKey<boolean>('isFullscreen', false, localize('isFullscreen', "Whether the main window is in fullscreen mode"));
 export const IsAuxiliaryWindowFocusedContext = new RawContextKey<boolean>('isAuxiliaryWindowFocusedContext', false, localize('isAuxiliaryWindowFocusedContext', "Whether an auxiliary window is focused"));
+export const IsAgentsWindowContext = new RawContextKey<boolean>('isAgentsWindow', false, localize('isAgentsWindow', "Whether the current window is an agents window."));
 
 export const HasWebFileSystemAccess = new RawContextKey<boolean>('hasWebFileSystemAccess', false, true); // Support for FileSystemAccess web APIs (https://wicg.github.io/file-system-access)
 

@@ -121,8 +121,8 @@ export class VoidSCMService implements IVoidSCMService {
 	async gitDiscard(pathStr: string, file?: string): Promise<void> {
 		try {
 			if (file) {
-				await exec(`git checkout HEAD -- "${file}"`, { cwd: pathStr }).catch(() => {});
-				await exec(`git clean -fd -- "${file}"`, { cwd: pathStr }).catch(() => {});
+				await exec(`git checkout HEAD -- "${file}"`, { cwd: pathStr }).catch(err => console.warn(`[VoidSCM] checkout failed for ${file}:`, err));
+				await exec(`git clean -fd -- "${file}"`, { cwd: pathStr }).catch(err => console.warn(`[VoidSCM] clean failed for ${file}:`, err));
 			} else {
 				await exec('git reset --hard HEAD', { cwd: pathStr });
 				await exec('git clean -fd', { cwd: pathStr });
@@ -156,7 +156,7 @@ export class VoidSCMService implements IVoidSCMService {
 			if (!fs.existsSync(tmpDir)) {
 				fs.mkdirSync(tmpDir, { recursive: true });
 			}
-			const content = await git(`git show HEAD:"${file}"`, pathStr).catch(() => '');
+			const content = await git(`git show HEAD:"${file}"`, pathStr).catch(err => { console.warn(`[VoidSCM] git show HEAD failed for ${file}:`, err); return ''; });
 			const tempFilePath = path.join(tmpDir, `${Date.now()}-${file.replace(/[\/\\]/g, '_')}`);
 			await fs.promises.writeFile(tempFilePath, content, 'utf8');
 			return tempFilePath;

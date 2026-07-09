@@ -403,6 +403,9 @@ import './contrib/inlineCompletions/browser/inlineCompletions.contribution.js';
 
 // Drop or paste into
 import './contrib/dropOrPasteInto/browser/dropOrPasteInto.contribution.js';
+
+// Welcome Agent Sessions
+
 import { AllowedExtensionsService } from '../platform/extensionManagement/common/allowedExtensionsService.js';
 
 

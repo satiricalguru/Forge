@@ -215,6 +215,7 @@ class StandaloneEnvironmentService implements IEnvironmentService {
 
 	readonly stateResource: URI = URI.from({ scheme: 'monaco', authority: 'stateResource' });
 	readonly userRoamingDataHome: URI = URI.from({ scheme: 'monaco', authority: 'userRoamingDataHome' });
+	readonly agentSessionsWorkspace: URI = URI.from({ scheme: 'monaco', authority: 'agentSessionsWorkspace' });
 	readonly keyboardLayoutResource: URI = URI.from({ scheme: 'monaco', authority: 'keyboardLayoutResource' });
 	readonly argvResource: URI = URI.from({ scheme: 'monaco', authority: 'argvResource' });
 	readonly untitledWorkspacesHome: URI = URI.from({ scheme: 'monaco', authority: 'untitledWorkspacesHome' });

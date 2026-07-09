@@ -54,7 +54,7 @@ const ModelSelectBox = ({ options, featureName, className }: { options: ModelOpt
 	useEffect(() => {
 		hardwareService.getHardwareInfo().then(info => {
 			setHardwareInfo(info);
-		}).catch(() => {});
+		}).catch(err => console.warn('[ModelDropdown] Failed to fetch hardware info:', err));
 	}, [hardwareService]);
 
 	const selection = voidSettingsService.state.modelSelectionOfFeature[featureName]

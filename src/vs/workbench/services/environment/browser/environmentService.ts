@@ -99,6 +99,8 @@ export class BrowserWorkbenchEnvironmentService implements IBrowserWorkbenchEnvi
 	get windowLogsPath(): URI { return this.logsHome; }
 
 	@memoize
+	get agentSessionsWorkspace(): any { return undefined; }
+
 	get logFile(): URI { return joinPath(this.windowLogsPath, 'window.log'); }
 
 	@memoize
