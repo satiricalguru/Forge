@@ -11,15 +11,39 @@ import { ModelSelection } from '../../../../common/voidSettingsTypes.js';
 import { IAgentSession, PermissionLevel, AgentType } from '../../../../common/sessionRegistryTypes.js';
 import { ISkill } from '../../../../common/skillsService.js';
 import { ChatMarkdownRender } from '../markdown/ChatMarkdownRender.js';
+import { VOID_OPEN_SETTINGS_ACTION_ID } from '../../../voidSettingsPane.js';
+import {
+  AlertCircle, ArrowLeft, ArrowRight, Bot, BookOpen, ChevronDown, ChevronRight,
+  CircleAlert, CircleHelp, CircleStop, Code2, File, Filter, Folder, GitBranch,
+  Home, Lightbulb, LoaderCircle, LucideIcon, PanelLeftClose,
+  PanelRightClose, PanelRightOpen, Play, Plus, Puzzle, Rocket, Search,
+  SendHorizontal, Server, Settings, ShieldAlert, Sparkles, Trash2, UserRound,
+  Wrench, Zap,
+} from 'lucide-react';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const B = 'var(--vscode-panel-border, var(--vscode-sideBar-border, var(--vscode-contrastBorder, rgba(255,255,255,0.06))))';
 const isMac = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
 
-// Runtime codicon class helper — builds class names dynamically so scope-tailwind
-// cannot prefix them. VS Code's icon CSS expects unprefixed `.codicon` selectors.
-const _CI_BASE = 'codicon';
-const ci = (...names: string[]) => [_CI_BASE, ...names.map(n => _CI_BASE + '-' + n)].join(' ');
+// Keep icons as SVGs. `scope-tailwind` rewrites CSS class names, including codicons,
+// so CSS-font icons are unreliable in this independently mounted window.
+const iconByName: Record<string, LucideIcon> = {
+  'layout-sidebar-left': PanelLeftClose, 'layout-sidebar-right': PanelRightOpen,
+  'layout-sidebar-right-off': PanelRightClose, 'arrow-left': ArrowLeft, 'arrow-right': ArrowRight,
+  'chevron-down': ChevronDown, 'chevron-right': ChevronRight, 'add': Plus,
+  'folder': Folder, 'symbol-file': File, 'file': File, 'source-control': GitBranch,
+  'loading': LoaderCircle, 'error': CircleAlert, 'tools': Wrench, 'account': UserRound,
+  'sparkle': Sparkles, 'play': Play, 'debug-disconnect': CircleStop, 'settings-gear': Settings,
+  'filter': Filter, 'search': Search, 'trash': Trash2, 'home': Home, 'robot': Bot,
+  'lightbulb': Lightbulb, 'book': BookOpen, 'zap': Zap, 'server': Server,
+  'extensions': Puzzle, 'code': Code2, 'newline': SendHorizontal, 'git-branch': GitBranch,
+  'shield': ShieldAlert, 'warning': AlertCircle, 'rocket': Rocket, 'settings': Settings,
+};
+
+const ForgeIcon = ({ name, size = 14, spin = false, style }: { name: string; size?: number; spin?: boolean; style?: React.CSSProperties }) => {
+  const Icon = iconByName[name] ?? CircleHelp;
+  return <Icon aria-hidden="true" size={size} strokeWidth={1.8} style={{ flexShrink: 0, ...(spin ? { animation: 'void-agents-spin 1.2s linear infinite' } : {}), ...style }} />;
+};
 
 // ── StatusDot ────────────────────────────────────────────────────────────────
 const StatusDot = ({ status }: { status: string }) => {
@@ -37,17 +61,17 @@ const Badge = ({ count }: { count: number }) =>
   }}>{count}</span>;
 
 // ── SidebarBtn ───────────────────────────────────────────────────────────────
-const SidebarBtn = ({ icon, label, onClick, style }: {
-  icon: string; label?: string; onClick?: () => void; style?: React.CSSProperties;
+const SidebarBtn = ({ icon, label, onClick, style, disabled = false }: {
+  icon: string; label?: string; onClick?: () => void; style?: React.CSSProperties; disabled?: boolean;
 }) =>
-  <button onClick={onClick} title={label} style={{
-    background: 'none', border: 'none', cursor: 'pointer', padding: '3px 5px',
-    color: 'inherit', opacity: 0.6, outline: 'none', display: 'inline-flex',
+  <button onClick={onClick} title={label} aria-label={label} disabled={disabled} style={{
+    background: 'none', border: 'none', cursor: disabled ? 'default' : 'pointer', padding: '3px 5px',
+    color: 'inherit', opacity: disabled ? 0.3 : 0.6, outline: 'none', display: 'inline-flex',
     alignItems: 'center', justifyContent: 'center', borderRadius: 3, ...style
   }}
-  onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
-  onMouseLeave={e => { e.currentTarget.style.opacity = '0.6'; e.currentTarget.style.background = 'none'; }}>
-    <span className={ci(icon)} style={{ fontSize: 13 }} />
+  onMouseEnter={e => { if (!disabled) { e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; } }}
+  onMouseLeave={e => { if (!disabled) { e.currentTarget.style.opacity = '0.6'; e.currentTarget.style.background = 'none'; } }}>
+    <ForgeIcon name={icon} size={13} />
   </button>;
 
 // ── ModelDropdown ────────────────────────────────────────────────────────────
@@ -89,7 +113,7 @@ const ModelSelectButton = ({
         onMouseLeave={e => e.currentTarget.style.opacity = '0.9'}
       >
         <span>{label}</span>
-        <span className={ci('chevron-down')} style={{ fontSize: 8, opacity: 0.5, marginLeft: 2 }} />
+        <ForgeIcon name="chevron-down" size={10} style={{ opacity: 0.5, marginLeft: 2 }} />
       </button>
 
       {open && (
@@ -203,9 +227,9 @@ const ApprovalsDropdown = ({ approvalLevel, setApprovalLevel, direction = 'up' }
         onMouseEnter={e => e.currentTarget.style.opacity = '1'}
         onMouseLeave={e => e.currentTarget.style.opacity = '0.7'}
       >
-        <span className={ci(activeItem.icon)} style={{ fontSize: 12 }} />
+        <ForgeIcon name={activeItem.icon} size={12} />
         <span>{activeItem.title}</span>
-        <span className={ci('chevron-down')} style={{ fontSize: 8, opacity: 0.5, marginLeft: 2 }} />
+        <ForgeIcon name="chevron-down" size={10} style={{ opacity: 0.5, marginLeft: 2 }} />
       </div>
 
       {open && (
@@ -232,7 +256,7 @@ const ApprovalsDropdown = ({ approvalLevel, setApprovalLevel, direction = 'up' }
                 onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'; }}
                 onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = 'transparent'; }}
               >
-                <span className={ci(item.icon)} style={{ fontSize: 14, marginTop: 2, flexShrink: 0 }} />
+                <ForgeIcon name={item.icon} size={14} style={{ marginTop: 2 }} />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <div style={{ fontWeight: 600, fontSize: 12 }}>{item.title}</div>
                   <div style={{ fontSize: 11, opacity: 0.6, lineHeight: 1.3 }}>{item.desc}</div>
@@ -285,7 +309,7 @@ const WorkspaceDropdown = ({ folders, selected, onSelect, commandService }: {
       onMouseEnter={e => e.currentTarget.style.textDecoration = 'underline'}
       onMouseLeave={e => e.currentTarget.style.textDecoration = 'none'}>
         📁 {name}
-        <span className={ci('chevron-down')} style={{ fontSize: 8, opacity: 0.5, marginLeft: 2 }} />
+        <ForgeIcon name="chevron-down" size={10} style={{ opacity: 0.5, marginLeft: 2 }} />
       </span>
       {open && (
         <div style={{
@@ -308,7 +332,7 @@ const WorkspaceDropdown = ({ folders, selected, onSelect, commandService }: {
             style={{ padding: '6px 14px', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}
             onMouseEnter={e => e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'}
             onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-            <span className={ci('add')} style={{ fontSize: 12 }} />
+            <ForgeIcon name="add" size={12} />
             <span>Add Folder...</span>
           </div>
         </div>
@@ -379,11 +403,11 @@ const FileTree = ({ folderURI }: { folderURI: URI }) => {
           onMouseEnter={e => e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'}
           onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
           {f.isDirectory ?
-            <span className={ci('chevron-' + (isExpanded ? 'down' : 'right'))} style={{ fontSize: 12, opacity: 0.6, width: 16 }} /> :
+            <ForgeIcon name={'chevron-' + (isExpanded ? 'down' : 'right')} size={12} style={{ opacity: 0.6, width: 16 }} /> :
             <span style={{ width: 16 }} />
           }
-          <span className={ci(f.isDirectory ? 'folder' : 'symbol-file')}
-            style={{ fontSize: 14, color: f.isDirectory ? '#e2c08d' : '#c5947c' }} />
+          <ForgeIcon name={f.isDirectory ? 'folder' : 'symbol-file'} size={14}
+            style={{ color: f.isDirectory ? '#e2c08d' : '#c5947c' }} />
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
         </div>
         {f.isDirectory && isExpanded && childrenMap[path]?.map(child => renderItem(child, depth + 1))}
@@ -395,8 +419,8 @@ const FileTree = ({ folderURI }: { folderURI: URI }) => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', overflowY: 'auto', height: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', fontSize: 12, fontWeight: 600, opacity: 0.8 }}>
-        <span className={ci('chevron-down')} style={{ fontSize: 12 }} />
-        <span className={ci('folder')} style={{ fontSize: 14, color: '#e2c08d' }} />
+        <ForgeIcon name="chevron-down" size={12} />
+        <ForgeIcon name="folder" size={14} style={{ color: '#e2c08d' }} />
         <span>{folderName}</span>
       </div>
       {files.map(f => renderItem(f, 1))}
@@ -414,7 +438,7 @@ const ChangesList = ({ activeSession, allThreads }: { activeSession: string | nu
   if (!activeSession || sortedURIs.length === 0) {
     return (
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', opacity: 0.35, gap: 6, padding: 24, textAlign: 'center' }}>
-        <span className={ci('source-control')} style={{ fontSize: 28 }} />
+        <ForgeIcon name="source-control" size={28} />
         <div style={{ fontSize: 12, fontWeight: 500 }}>No changes yet</div>
         <div style={{ fontSize: 11 }}>Edits will appear here</div>
       </div>
@@ -432,9 +456,9 @@ const ChangesList = ({ activeSession, allThreads }: { activeSession: string | nu
             style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, padding: '3px 8px' }}
             onMouseEnter={e => e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'}
             onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-            <span className={ci('file')} style={{ fontSize: 14, color: '#81b88b' }} />
+            <ForgeIcon name="file" size={14} style={{ color: '#81b88b' }} />
             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
-            {state?.isStreaming && <span className={ci('loading') + ' ' + _CI_BASE + '-modifier-spin'} style={{ fontSize: 12, opacity: 0.5 }} />}
+            {state?.isStreaming && <ForgeIcon name="loading" size={12} spin style={{ opacity: 0.5 }} />}
           </div>
         );
       })}
@@ -463,7 +487,7 @@ const ChatMessage = ({ msg, modelName }: { msg: any; modelName: string }) => {
         background: 'rgba(255,255,255,0.02)', borderRadius: 6, fontSize: 12, opacity: 0.65,
         border: `1px solid rgba(255,255,255,0.03)`
       }}>
-        <span className={ci('error')} style={{ fontSize: 12, color: 'var(--vscode-errorForeground)' }} />
+        <ForgeIcon name="error" size={12} style={{ color: 'var(--vscode-errorForeground)' }} />
         <span style={{ opacity: 0.7 }}>Tool call <strong>{msg.name}</strong> was cancelled.</span>
       </div>
     );
@@ -477,7 +501,7 @@ const ChatMessage = ({ msg, modelName }: { msg: any; modelName: string }) => {
         background: 'rgba(255,255,255,0.02)', borderRadius: 6, fontSize: 12, opacity: 0.8,
         border: `1px solid rgba(255,255,255,0.03)`
       }}>
-        <span className={ci('tools')} style={{ fontSize: 12, color: 'var(--vscode-textLink-foreground)' }} />
+        <ForgeIcon name="tools" size={12} style={{ color: 'var(--vscode-textLink-foreground)' }} />
         <span style={{ fontWeight: 600, color: 'var(--vscode-textLink-foreground)' }}>{toolName}</span>
         <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.5, fontStyle: 'italic' }}>
           {msg.content?.slice(0, 80)}
@@ -501,7 +525,7 @@ const ChatMessage = ({ msg, modelName }: { msg: any; modelName: string }) => {
         color: isUser ? 'var(--vscode-foreground)' : 'var(--vscode-button-foreground)',
         boxShadow: isUser ? 'none' : '0 2px 8px rgba(0, 122, 255, 0.2)'
       }}>
-        <span className={ci(isUser ? 'account' : 'sparkle')} style={{ fontSize: 14 }} />
+        <ForgeIcon name={isUser ? 'account' : 'sparkle'} size={14} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{
@@ -531,6 +555,7 @@ export const AgentsWindow = () => {
   const voidSettingsService = accessor.get('IVoidSettingsService');
   const sessionRegistry = accessor.get('ISessionRegistryService');
   const commandService = accessor.get('ICommandService');
+  const mcpService = accessor.get('IMCPService');
 
   const threadsState = useChatThreadsState();
   const settingsState = useSettingsState();
@@ -562,7 +587,14 @@ export const AgentsWindow = () => {
   const [selectedFolder, setSelectedFolder] = useState<URI | null>(null);
   const [selectedModel, setSelectedModel] = useState<ModelSelection | null>(null);
   const [activeCustomization, setActiveCustomization] = useState<string | null>(null);
+  const [isLeftSidebarVisible, setIsLeftSidebarVisible] = useState(true);
+  const [isRightSidebarVisible, setIsRightSidebarVisible] = useState(true);
+  const [isSessionFilterEnabled, setIsSessionFilterEnabled] = useState(false);
+  const [isSessionSearchVisible, setIsSessionSearchVisible] = useState(false);
+  const [sessionSearch, setSessionSearch] = useState('');
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const followupTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
 
@@ -583,25 +615,15 @@ export const AgentsWindow = () => {
   // ── Live model discovery ─────────────────────────────────────────────────
   const [liveModels, setLiveModels] = useState<{ name: string; selection: ModelSelection }[]>([]);
   useEffect(() => {
-    let cancelled = false;
-    const fetchOnce = async () => {
-      let registry: any;
-      try { registry = accessor.get('ILocalProviderRegistryService'); } catch { return; }
-      if (!registry?.listModelsFor) return;
-      const providers: ('ollama' | 'vLLM' | 'lmStudio' | 'openAICompatible')[] = ['ollama', 'vLLM', 'lmStudio', 'openAICompatible'];
-      const all: { name: string; selection: ModelSelection }[] = [];
-      for (const p of providers) {
-        try {
-          const ps = settingsState.settingsOfProvider[p];
-          if (ps && !ps._didFillInProviderSettings) continue;
-          const res = await registry.listModelsFor(p);
-          if (res?.models) res.models.forEach((m: any) => all.push({ name: `${p} · ${m.id}`, selection: { providerName: p, modelName: m.id } }));
-        } catch {}
-      }
-      if (!cancelled) setLiveModels(all);
-    };
-    fetchOnce();
-    return () => { cancelled = true; };
+    // Model refresh is performed by the main-process LLM channel. Reading the
+    // resulting settings state avoids renderer-side HTTP requests, which local
+    // servers such as LM Studio commonly reject due to CORS.
+    const providers: ModelSelection['providerName'][] = ['ollama', 'vLLM', 'lmStudio', 'openAICompatible'];
+    setLiveModels(providers.flatMap(providerName =>
+      (settingsState.settingsOfProvider[providerName]?.models ?? [])
+        .filter(model => !model.isHidden)
+        .map(model => ({ name: `${providerName} · ${model.modelName}`, selection: { providerName, modelName: model.modelName } }))
+    ));
   }, [settingsState.settingsOfProvider]);
 
   useEffect(() => {
@@ -623,6 +645,10 @@ export const AgentsWindow = () => {
   // ── Session data ─────────────────────────────────────────────────────────
   const allThreads = threadsState.allThreads || {};
   const sortedSessions = [...registrySessions].sort((a, b) => b.updatedAt - a.updatedAt);
+  const visibleSessions = sortedSessions.filter(session => {
+    if (isSessionFilterEnabled && streamStateMap[session.chatThreadId]?.isRunning) return false;
+    return !sessionSearch || (session.title || 'New Session').toLocaleLowerCase().includes(sessionSearch.toLocaleLowerCase());
+  });
   const activeThread = activeSession ? allThreads[activeSession] : null;
   const activeStream = activeSession ? streamStateMap[activeSession] : null;
   const isStreaming = activeStream?.isRunning;
@@ -640,6 +666,7 @@ export const AgentsWindow = () => {
     } catch {}
   }, []);
   const mcpCount = Object.keys(mcpState?.mcpServerOfName || {}).length;
+  const mcpTools = mcpService?.getMCPTools?.() ?? [];
 
   // ── Handlers ─────────────────────────────────────────────────────────────
   const handleCreateSession = async () => {
@@ -668,6 +695,29 @@ export const AgentsWindow = () => {
     if (!followupText.trim() || !activeSession) return;
     await chatThreadsService.addUserMessageAndStreamResponse({ userMessage: followupText, threadId: activeSession });
     setFollowupText('');
+  };
+
+  const focusComposer = (target?: 'prompt' | 'followup') => {
+    setActiveCustomization(null);
+    if (target === 'prompt' || !activeSession) setActiveSession(null);
+    const focusTarget = () => {
+      const textarea = target === 'prompt'
+        ? promptTextareaRef.current
+        : target === 'followup' || activeSession
+          ? followupTextareaRef.current
+          : promptTextareaRef.current;
+      textarea?.focus();
+    };
+    requestAnimationFrame(() => {
+      focusTarget();
+      if (document.activeElement !== promptTextareaRef.current && document.activeElement !== followupTextareaRef.current) {
+        requestAnimationFrame(focusTarget);
+      }
+    });
+  };
+
+  const handleStop = () => {
+    if (activeSession && isStreaming) void chatThreadsService.abortRunning(activeSession);
   };
 
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [activeThread?.messages?.length]);
@@ -707,15 +757,12 @@ export const AgentsWindow = () => {
       }}>
         {/* Left: nav */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, WebkitAppRegion: 'no-drag' as any }}>
-          <SidebarBtn icon={'layout-sidebar-left'} label="Toggle Sidebar" />
-          <div style={{ width: 4 }} />
-          <SidebarBtn icon={'arrow-left'} label="Back" />
-          <SidebarBtn icon={'arrow-right'} label="Forward" />
+          <SidebarBtn icon={isLeftSidebarVisible ? 'layout-sidebar-left' : 'layout-sidebar-right'} label="Toggle Sidebar" onClick={() => setIsLeftSidebarVisible(v => !v)} />
         </div>
 
         {/* Center: breadcrumb */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, WebkitAppRegion: 'no-drag' as any }}>
-          <span className={ci('sparkle')} style={{ fontSize: 14, opacity: 0.6 }} />
+          <ForgeIcon name="sparkle" size={14} style={{ opacity: 0.6 }} />
           <span>
             {activeSession
               ? `${activeThread?.messages?.[0]?.content?.slice(0, 30) || 'Session'} · ${currentWorkspace}`
@@ -726,12 +773,11 @@ export const AgentsWindow = () => {
 
         {/* Right: actions */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 2, WebkitAppRegion: 'no-drag' as any }}>
-          <SidebarBtn icon={'play'} label="Run" />
-          <SidebarBtn icon={'debug-disconnect'} label="Stop" />
+          <SidebarBtn icon={'play'} label="Focus composer" onClick={focusComposer} />
+          <SidebarBtn icon={'debug-disconnect'} label="Stop generation" onClick={handleStop} disabled={!isStreaming} />
           <span style={{ width: 8 }} />
-          <SidebarBtn icon={'layout-sidebar-right-off'} label="Toggle Panel" />
-          <SidebarBtn icon={'settings-gear'} label="Settings" />
-          <SidebarBtn icon={'account'} label="Account" />
+          <SidebarBtn icon={isRightSidebarVisible ? 'layout-sidebar-right-off' : 'layout-sidebar-right'} label="Toggle Panel" onClick={() => setIsRightSidebarVisible(v => !v)} />
+          <SidebarBtn icon={'settings-gear'} label="Settings" onClick={() => void commandService.executeCommand(VOID_OPEN_SETTINGS_ACTION_ID)} />
         </div>
       </div>
 
@@ -739,13 +785,13 @@ export const AgentsWindow = () => {
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
 
         {/* ═══ LEFT SIDEBAR ════════════════════════════════════════════ */}
-        <div style={{ width: 200, flexShrink: 0, display: 'flex', flexDirection: 'column', borderRight: `1px solid ${B}`, ...sb }}>
+        {isLeftSidebarVisible && <div style={{ width: 200, flexShrink: 0, display: 'flex', flexDirection: 'column', borderRight: `1px solid ${B}`, ...sb }}>
           {/* Sessions header */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 35, padding: '0 8px 0 14px', borderBottom: `1px solid ${B}` }}>
             <span style={{ fontSize: 12, fontWeight: 600 }}>Sessions</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <button
-                onClick={() => setActiveSession(null)}
+                onClick={() => { setActiveSession(null); setActiveCustomization(null); focusComposer('prompt'); }}
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 8px',
                   fontSize: 11, fontWeight: 600, cursor: 'pointer', borderRadius: 3,
@@ -755,17 +801,23 @@ export const AgentsWindow = () => {
                 New
                 <span style={{ opacity: 0.6, fontSize: 10 }}>{isMac ? '⌘N' : 'Ctrl+N'}</span>
               </button>
-              <SidebarBtn icon={'filter'} label="Filter" />
-              <SidebarBtn icon={'search'} label="Search" />
+              <SidebarBtn icon={'filter'} label={isSessionFilterEnabled ? 'Show all sessions' : 'Hide running sessions'} onClick={() => setIsSessionFilterEnabled(v => !v)} style={isSessionFilterEnabled ? { opacity: 1 } : undefined} />
+              <SidebarBtn icon={'search'} label="Search sessions" onClick={() => setIsSessionSearchVisible(v => !v)} />
             </div>
           </div>
 
+          {isSessionSearchVisible && <div style={{ padding: '6px 8px', borderBottom: `1px solid ${B}` }}>
+            <input autoFocus value={sessionSearch} onChange={e => setSessionSearch(e.target.value)} placeholder="Search sessions"
+              aria-label="Search sessions"
+              style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${B}`, borderRadius: 3, padding: '4px 6px', background: 'var(--vscode-input-background)', color: 'var(--vscode-input-foreground)', font: 'inherit' }} />
+          </div>}
+
           {/* Session list */}
           <div style={{ flex: 1, overflowY: 'auto' }}>
-            {sortedSessions.length === 0 ? (
-              <div style={{ padding: '16px 14px', opacity: 0.4, fontSize: 12 }}>No sessions yet</div>
+            {visibleSessions.length === 0 ? (
+              <div style={{ padding: '16px 14px', opacity: 0.4, fontSize: 12 }}>{sortedSessions.length ? 'No matching sessions' : 'No sessions yet'}</div>
             ) : (
-              sortedSessions.map(session => {
+              visibleSessions.map(session => {
                 const stream = streamStateMap[session.chatThreadId];
                 const status = stream?.error ? 'error' : stream?.isRunning ? 'running' : session.status;
                 const active = activeSession === session.chatThreadId;
@@ -808,7 +860,7 @@ export const AgentsWindow = () => {
                         onMouseLeave={e => { e.currentTarget.style.opacity = '0.6'; e.currentTarget.style.background = 'none'; }}
                         title="Delete Session"
                       >
-                        <span className={ci('trash')} style={{ fontSize: 12 }} />
+                        <ForgeIcon name="trash" size={12} />
                       </button>
                     )}
                   </div>
@@ -836,7 +888,7 @@ export const AgentsWindow = () => {
                   onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'; }}
                   onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = 'transparent'; }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                    <span className={ci(item.icon)} style={{ fontSize: 13, width: 16, display: 'inline-flex', justifyContent: 'center' }} />
+                    <ForgeIcon name={item.icon} size={13} style={{ width: 16 }} />
                     <span>{item.label}</span>
                   </div>
                   {item.count > 0 && <Badge count={item.count} />}
@@ -844,7 +896,7 @@ export const AgentsWindow = () => {
               );
             })}
           </div>
-        </div>
+        </div>}
 
         {/* ═══ CENTER PANEL ════════════════════════════════════════════ */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', ...eb }}>
@@ -852,7 +904,7 @@ export const AgentsWindow = () => {
           {folders.length === 0 ? (
             /* ── No Folder Open View ───────────────────────────────────── */
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 32, gap: 12 }}>
-              <span className={ci('folder')} style={{ fontSize: 48, opacity: 0.4 }} />
+              <ForgeIcon name="folder" size={48} style={{ opacity: 0.4 }} />
               <div style={{ fontSize: 16, fontWeight: 500 }}>No Folder Open</div>
               <div style={{ fontSize: 13, opacity: 0.6, maxWidth: 320, textAlign: 'center', lineHeight: 1.5 }}>
                 Open a folder to start creating sessions and pair-programming with the agent.
@@ -882,11 +934,12 @@ export const AgentsWindow = () => {
                 {/* Prompt */}
                 <div style={{
                   border: `1px solid ${B}`, borderRadius: 8, background: 'var(--vscode-input-background)',
-                  overflow: 'hidden', transition: 'border-color 0.15s', padding: '10px 12px 8px'
+                  overflow: 'visible', transition: 'border-color 0.15s', padding: '10px 12px 8px'
                 }}
                 onFocus={e => e.currentTarget.style.borderColor = 'var(--vscode-focusBorder)'}
                 onBlur={e => e.currentTarget.style.borderColor = B}>
                   <textarea
+                    ref={promptTextareaRef}
                     value={prompt}
                     onChange={e => setPrompt(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleCreateSession(); } }}
@@ -901,17 +954,6 @@ export const AgentsWindow = () => {
                   />
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8, borderTop: `1px solid rgba(255,255,255,0.04)` }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <button onClick={() => commandService.executeCommand('workbench.action.addRootFolder')}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex', alignItems: 'center', color: 'inherit', opacity: 0.6 }}
-                        onMouseEnter={e => e.currentTarget.style.opacity = '1'}
-                        onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
-                        title="Add context"
-                      >
-                        <span className={ci('add')} style={{ fontSize: 13 }} />
-                      </button>
-
-                      <div style={{ width: 1, height: 12, background: 'rgba(255,255,255,0.12)' }} />
-
                       <button onClick={() => setAgentMode(agentMode === 'interactive' ? 'background' : 'interactive')}
                         style={{
                           display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 6px',
@@ -922,7 +964,7 @@ export const AgentsWindow = () => {
                         onMouseEnter={e => e.currentTarget.style.opacity = '1'}
                         onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
                       >
-                        <span className={ci('code')} style={{ fontSize: 12 }} />
+                        <ForgeIcon name="code" size={12} />
                         <span>{agentMode === 'interactive' ? 'Agent' : 'Background'}</span>
                       </button>
 
@@ -947,7 +989,7 @@ export const AgentsWindow = () => {
                       disabled={!prompt.trim()}
                       title="Send"
                     >
-                      <span className={ci('newline')} style={{ fontSize: 13 }} />
+                      <ForgeIcon name="newline" size={13} />
                     </button>
                   </div>
                 </div>
@@ -955,21 +997,7 @@ export const AgentsWindow = () => {
                 {/* Footer */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, opacity: 0.4, padding: '8px 4px 0' }}>
                   <ApprovalsDropdown approvalLevel={approvalLevel} setApprovalLevel={setApprovalLevel} direction="down" />
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div
-                      onClick={() => commandService.executeCommand('workbench.action.addRootFolder')}
-                      style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}
-                      onMouseEnter={e => e.currentTarget.style.opacity = '1'}
-                      onMouseLeave={e => e.currentTarget.style.opacity = '0.7'}>
-                      <span className={ci('folder')} style={{ fontSize: 12 }} />
-                      <span>Folder</span>
-                    </div>
-                    <span style={{ opacity: 0.3 }}>|</span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <span className={ci('git-branch')} style={{ fontSize: 12 }} />
-                      <span>Branch</span>
-                    </div>
-                  </div>
+                  {selectedFolder && <span>{selectedFolder.fsPath}</span>}
                 </div>
               </div>
             </div>
@@ -977,11 +1005,21 @@ export const AgentsWindow = () => {
             /* ── Customization View ────────────────────────────────────── */
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: 24, overflowY: 'auto' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
-                <span className={ci(customizations.find(c => c.label === activeCustomization)?.icon || 'settings')} style={{ fontSize: 20 }} />
+                <ForgeIcon name={customizations.find(c => c.label === activeCustomization)?.icon || 'settings'} size={20} />
                 <h2 style={{ fontSize: 18, fontWeight: 600, margin: 0 }}>{activeCustomization}</h2>
               </div>
 
-              {activeCustomization === 'Skills' ? (
+              {activeCustomization === 'Overview' ? (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+                  <div style={{ border: `1px solid ${B}`, borderRadius: 6, padding: 14 }}><div style={{ opacity: 0.6, fontSize: 11 }}>Sessions</div><div style={{ fontSize: 24, fontWeight: 600 }}>{sortedSessions.length}</div></div>
+                  <div style={{ border: `1px solid ${B}`, borderRadius: 6, padding: 14 }}><div style={{ opacity: 0.6, fontSize: 11 }}>Available models</div><div style={{ fontSize: 24, fontWeight: 600 }}>{liveModels.length}</div></div>
+                  <div style={{ border: `1px solid ${B}`, borderRadius: 6, padding: 14 }}><div style={{ opacity: 0.6, fontSize: 11 }}>MCP servers</div><div style={{ fontSize: 24, fontWeight: 600 }}>{mcpCount}</div></div>
+                </div>
+              ) : activeCustomization === 'Agents' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {sortedSessions.length === 0 ? <div style={{ opacity: 0.6 }}>No agent sessions yet.</div> : sortedSessions.map(session => <button key={session.id} onClick={() => { chatThreadsService.switchToThread(session.chatThreadId); setActiveSession(session.chatThreadId); setActiveCustomization(null); }} style={{ textAlign: 'left', padding: '8px 10px', cursor: 'pointer', border: `1px solid ${B}`, borderRadius: 4, background: 'transparent', color: 'inherit' }}>{session.title || 'New Session'}</button>)}
+                </div>
+              ) : activeCustomization === 'Skills' ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {skillsList.length === 0 ? (
                     <div style={{ opacity: 0.5, fontSize: 13 }}>No custom skills loaded. Add skills under global or project customization roots.</div>
@@ -1009,11 +1047,23 @@ export const AgentsWindow = () => {
                       </div>
                     ))
                   )}
+                  <button onClick={() => void mcpService.revealMCPConfigFile()} style={{ alignSelf: 'flex-start', padding: '6px 12px', cursor: 'pointer', border: 'none', borderRadius: 3, background: 'var(--vscode-button-background)', color: 'var(--vscode-button-foreground)' }}>Open MCP configuration</button>
+                </div>
+              ) : activeCustomization === 'Instructions' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div style={{ opacity: 0.7, lineHeight: 1.5 }}>Workspace instructions are supplied through Forge settings and project rules. Open settings to manage them.</div>
+                  <button onClick={() => void commandService.executeCommand(VOID_OPEN_SETTINGS_ACTION_ID)} style={{ alignSelf: 'flex-start', padding: '6px 12px', cursor: 'pointer', border: 'none', borderRadius: 3, background: 'var(--vscode-button-background)', color: 'var(--vscode-button-foreground)' }}>Open Void Settings</button>
+                </div>
+              ) : activeCustomization === 'Hooks' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}><div style={{ opacity: 0.7 }}>Hooks are configured in Void Settings.</div><button onClick={() => void commandService.executeCommand(VOID_OPEN_SETTINGS_ACTION_ID)} style={{ alignSelf: 'flex-start', padding: '6px 12px', cursor: 'pointer', border: 'none', borderRadius: 3, background: 'var(--vscode-button-background)', color: 'var(--vscode-button-foreground)' }}>Open Void Settings</button></div>
+              ) : activeCustomization === 'Plugins' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}><div style={{ opacity: 0.7 }}>Manage installed extensions and plugins from the Extensions view.</div><button onClick={() => void commandService.executeCommand('workbench.view.extensions')} style={{ alignSelf: 'flex-start', padding: '6px 12px', cursor: 'pointer', border: 'none', borderRadius: 3, background: 'var(--vscode-button-background)', color: 'var(--vscode-button-foreground)' }}>Open Extensions</button></div>
+              ) : activeCustomization === 'Tools' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {mcpTools.length === 0 ? <div style={{ opacity: 0.6 }}>No MCP tools are currently available.</div> : mcpTools.map(tool => <div key={tool.name} style={{ border: `1px solid ${B}`, borderRadius: 4, padding: '8px 10px' }}><div style={{ fontWeight: 600 }}>{tool.name}</div><div style={{ opacity: 0.7, fontSize: 12 }}>{tool.description}</div></div>)}
                 </div>
               ) : (
-                <div style={{ opacity: 0.5, fontSize: 13 }}>
-                  Customization details are configured and managed in the main editor.
-                </div>
+                null
               )}
 
               <div style={{ marginTop: 24 }}>
@@ -1033,8 +1083,65 @@ export const AgentsWindow = () => {
                   ))}
                   {isStreaming && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 0', opacity: 0.45 }}>
-                      <span className={ci('loading') + ' ' + _CI_BASE + '-modifier-spin'} style={{ fontSize: 14 }} />
+                      <ForgeIcon name="loading" size={14} spin />
                       <span style={{ fontSize: 12 }}>Thinking…</span>
+                    </div>
+                  )}
+                  {activeStream?.error && (
+                    <div style={{
+                      margin: '12px 0', padding: '14px 16px', borderRadius: 8,
+                      border: '1px solid var(--vscode-inputValidation-errorBorder, #f87171)',
+                      background: 'var(--vscode-inputValidation-errorBackground, rgba(248, 113, 113, 0.08))',
+                      color: 'var(--vscode-inputValidation-errorForeground, var(--vscode-foreground))'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontWeight: 600 }}>
+                        <span className={ci('error')} style={{ fontSize: 16, color: 'var(--vscode-errorForeground, #f87171)' }} />
+                        <span>LLM Server Error</span>
+                      </div>
+                      <div style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 10, opacity: 0.9 }}>
+                        {activeStream.error.message || 'The local LLM server failed to respond or is offline.'}
+                      </div>
+                      
+                      <div style={{ fontSize: 12, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 10, opacity: 0.8, lineHeight: 1.6 }}>
+                        <strong style={{ display: 'block', marginBottom: 4 }}>How to fix:</strong>
+                        <ul style={{ margin: 0, paddingLeft: 16 }}>
+                          <li>Ensure your local LLM provider (Ollama, LM Studio, etc.) is active and running.</li>
+                          <li>Verify that the model server is listening on the correct port (e.g. <code>localhost:11434</code> or <code>localhost:1234</code>).</li>
+                          <li>Check your Void Settings in the main IDE window (Settings button below) to verify the host URI and selected model.</li>
+                        </ul>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+                        <button
+                          onClick={() => {
+                            try {
+                              chatThreadsService.dismissStreamError(activeSession);
+                            } catch {}
+                          }}
+                          style={{
+                            padding: '4px 12px', fontSize: 11, cursor: 'pointer', borderRadius: 3,
+                            border: `1px solid var(--vscode-button-border, rgba(255,255,255,0.15))`,
+                            background: 'transparent', color: 'var(--vscode-foreground)',
+                            fontFamily: 'var(--vscode-font-family)'
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                        >
+                          Dismiss
+                        </button>
+                        <button
+                          onClick={() => commandService.executeCommand('workbench.action.openVoidSettings')}
+                          style={{
+                            padding: '4px 12px', fontSize: 11, cursor: 'pointer', borderRadius: 3, border: 'none',
+                            background: 'var(--vscode-button-background)', color: 'var(--vscode-button-foreground)',
+                            fontFamily: 'var(--vscode-font-family)'
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.background = 'var(--vscode-button-hoverBackground)'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'var(--vscode-button-background)'}
+                        >
+                          Open Settings
+                        </button>
+                      </div>
                     </div>
                   )}
                   <div ref={chatEndRef} />
@@ -1044,11 +1151,12 @@ export const AgentsWindow = () => {
                 <div style={{ maxWidth: 680, margin: '0 auto' }}>
                   <div style={{
                     border: `1px solid ${B}`, borderRadius: 8, background: 'var(--vscode-input-background)',
-                    overflow: 'hidden', transition: 'border-color 0.15s', padding: '10px 12px 8px'
+                    overflow: 'visible', transition: 'border-color 0.15s', padding: '10px 12px 8px'
                   }}
                   onFocus={e => e.currentTarget.style.borderColor = 'var(--vscode-focusBorder)'}
                   onBlur={e => e.currentTarget.style.borderColor = B}>
                     <textarea
+                      ref={followupTextareaRef}
                       value={followupText}
                       onChange={e => setFollowupText(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendFollowup(); } }}
@@ -1063,17 +1171,6 @@ export const AgentsWindow = () => {
                     />
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8, borderTop: `1px solid rgba(255,255,255,0.04)` }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <button onClick={() => commandService.executeCommand('workbench.action.addRootFolder')}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex', alignItems: 'center', color: 'inherit', opacity: 0.6 }}
-                          onMouseEnter={e => e.currentTarget.style.opacity = '1'}
-                          onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
-                          title="Add context"
-                        >
-                          <span className={ci('add')} style={{ fontSize: 13 }} />
-                        </button>
-
-                        <div style={{ width: 1, height: 12, background: 'rgba(255,255,255,0.12)' }} />
-
                         <button onClick={() => setAgentMode(agentMode === 'interactive' ? 'background' : 'interactive')}
                           style={{
                             display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 6px',
@@ -1084,7 +1181,7 @@ export const AgentsWindow = () => {
                           onMouseEnter={e => e.currentTarget.style.opacity = '1'}
                           onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
                         >
-                          <span className={ci('code')} style={{ fontSize: 12 }} />
+                          <ForgeIcon name="code" size={12} />
                           <span>{agentMode === 'interactive' ? 'Agent' : 'Background'}</span>
                         </button>
 
@@ -1108,7 +1205,7 @@ export const AgentsWindow = () => {
                         disabled={!followupText.trim()}
                         title="Send"
                       >
-                        <span className={ci('newline')} style={{ fontSize: 13 }} />
+                        <ForgeIcon name="newline" size={13} />
                       </button>
                     </div>
                   </div>
@@ -1116,21 +1213,7 @@ export const AgentsWindow = () => {
                   {/* Footer */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, opacity: 0.4, padding: '8px 4px 0' }}>
                     <ApprovalsDropdown approvalLevel={approvalLevel} setApprovalLevel={setApprovalLevel} />
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div
-                        onClick={() => commandService.executeCommand('workbench.action.addRootFolder')}
-                        style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}
-                        onMouseEnter={e => e.currentTarget.style.opacity = '1'}
-                        onMouseLeave={e => e.currentTarget.style.opacity = '0.7'}>
-                        <span className={ci('folder')} style={{ fontSize: 12 }} />
-                        <span>Folder</span>
-                      </div>
-                      <span style={{ opacity: 0.3 }}>|</span>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <span className={ci('git-branch')} style={{ fontSize: 12 }} />
-                        <span>Branch</span>
-                      </div>
-                    </div>
+                  {selectedFolder && <span>{selectedFolder.fsPath}</span>}
                   </div>
                 </div>
               </div>
@@ -1139,7 +1222,7 @@ export const AgentsWindow = () => {
         </div>
 
         {/* ═══ RIGHT SIDEBAR ═══════════════════════════════════════════ */}
-        <div style={{ width: 240, flexShrink: 0, display: 'flex', flexDirection: 'column', borderLeft: `1px solid ${B}`, ...sb }}>
+        {isRightSidebarVisible && <div style={{ width: 240, flexShrink: 0, display: 'flex', flexDirection: 'column', borderLeft: `1px solid ${B}`, ...sb }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 35, padding: '0 8px', borderBottom: `1px solid ${B}` }}>
             <div style={{ display: 'flex' }}>
               {(['Changes', 'Files'] as const).map(t => {
@@ -1158,8 +1241,8 @@ export const AgentsWindow = () => {
               })}
             </div>
             <div style={{ display: 'flex', gap: 2 }}>
-              <SidebarBtn icon={'search'} label="Search" />
-              <SidebarBtn icon={'layout-sidebar-right'} label="Collapse" />
+              <SidebarBtn icon={'search'} label="Show workspace files" onClick={() => setActiveRightTab('Files')} />
+              <SidebarBtn icon={'layout-sidebar-right'} label="Collapse panel" onClick={() => setIsRightSidebarVisible(false)} />
             </div>
           </div>
           <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -1168,7 +1251,7 @@ export const AgentsWindow = () => {
               <ChangesList activeSession={activeSession} allThreads={allThreads} />
             }
           </div>
-        </div>
+        </div>}
       </div>
     </div>
   );
