@@ -3,7 +3,7 @@ from __future__ import annotations
 import os, sys, json, datetime, pathlib, textwrap, requests
 from openai import OpenAI
 
-REPO = "voideditor/void"
+REPO = os.environ.get("GITHUB_REPOSITORY", "voideditor/void")
 CACHE_FILE = pathlib.Path(".github/triage_cache.json")
 STAMP_FILE = pathlib.Path(".github/last_triage.txt")
 

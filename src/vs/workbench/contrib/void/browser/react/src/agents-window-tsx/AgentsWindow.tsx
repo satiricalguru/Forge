@@ -9,10 +9,17 @@ import { URI } from '../../../../../../../base/common/uri.js';
 import { useAccessor, useChatThreadsState, useFullChatThreadsStreamState, useSettingsState, useMCPServiceState, useCommandBarState, useIsDark } from '../util/services.js';
 import { ModelSelection } from '../../../../common/voidSettingsTypes.js';
 import { IAgentSession, PermissionLevel, AgentType } from '../../../../common/sessionRegistryTypes.js';
+import { ISkill } from '../../../../common/skillsService.js';
+import { ChatMarkdownRender } from '../markdown/ChatMarkdownRender.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const B = 'var(--vscode-panel-border, var(--vscode-sideBar-border, var(--vscode-contrastBorder, rgba(255,255,255,0.06))))';
 const isMac = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent);
+
+// Runtime codicon class helper — builds class names dynamically so scope-tailwind
+// cannot prefix them. VS Code's icon CSS expects unprefixed `.codicon` selectors.
+const _CI_BASE = 'codicon';
+const ci = (...names: string[]) => [_CI_BASE, ...names.map(n => _CI_BASE + '-' + n)].join(' ');
 
 // ── StatusDot ────────────────────────────────────────────────────────────────
 const StatusDot = ({ status }: { status: string }) => {
@@ -40,14 +47,20 @@ const SidebarBtn = ({ icon, label, onClick, style }: {
   }}
   onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
   onMouseLeave={e => { e.currentTarget.style.opacity = '0.6'; e.currentTarget.style.background = 'none'; }}>
-    <span className={`codicon ${icon}`} style={{ fontSize: 13 }} />
+    <span className={ci(icon)} style={{ fontSize: 13 }} />
   </button>;
 
 // ── ModelDropdown ────────────────────────────────────────────────────────────
-const ModelDropdown = ({ options, selected, onSelect }: {
-  options: { name: string; selection: ModelSelection }[];
-  selected: ModelSelection | null;
-  onSelect: (m: ModelSelection) => void;
+// ── ModelSelectButton ────────────────────────────────────────────────────────
+const ModelSelectButton = ({
+  liveModels, selectedModel, isAuto, onSelectModel, setIsAuto, direction = 'up'
+}: {
+  liveModels: { name: string; selection: ModelSelection }[];
+  selectedModel: ModelSelection | null;
+  isAuto: boolean;
+  onSelectModel: (m: ModelSelection) => void;
+  setIsAuto: (a: boolean) => void;
+  direction?: 'up' | 'down';
 }) => {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -59,44 +72,189 @@ const ModelDropdown = ({ options, selected, onSelect }: {
     return () => document.removeEventListener('mousedown', h);
   }, [open]);
 
-  const label = selected ? selected.modelName : 'Select model';
+  const label = isAuto ? 'Auto' : (selectedModel?.modelName || 'Auto');
+
   return (
     <div ref={ref} style={{ position: 'relative', display: 'inline-flex' }}>
-      <span onClick={() => setOpen(!open)} style={{
-        cursor: 'pointer', color: 'var(--vscode-foreground)', fontWeight: 600,
-        display: 'inline-flex', alignItems: 'center', gap: 2, padding: '0 2px'
-      }}
-      onMouseEnter={e => e.currentTarget.style.textDecoration = 'underline'}
-      onMouseLeave={e => e.currentTarget.style.textDecoration = 'none'}>
-        🤖 {label}
-        <span className="codicon codicon-chevron-down" style={{ fontSize: 8, opacity: 0.5, marginLeft: 2 }} />
-      </span>
+      <button onClick={() => setOpen(!open)}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 6px',
+          fontSize: 11, fontWeight: 500, cursor: 'pointer', borderRadius: 3, border: 'none', outline: 'none',
+          background: 'none',
+          color: isAuto ? '#22c55e' : 'var(--vscode-foreground)',
+          opacity: 0.9,
+          fontFamily: 'var(--vscode-font-family)'
+        }}
+        onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+        onMouseLeave={e => e.currentTarget.style.opacity = '0.9'}
+      >
+        <span>{label}</span>
+        <span className={ci('chevron-down')} style={{ fontSize: 8, opacity: 0.5, marginLeft: 2 }} />
+      </button>
+
       {open && (
         <div style={{
-          position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 9999,
-          minWidth: 240, maxHeight: 220, overflowY: 'auto',
+          position: 'absolute',
+          ...(direction === 'up' ? { bottom: '100%', marginBottom: 4 } : { top: '100%', marginTop: 4 }),
+          left: 0, zIndex: 9999,
+          minWidth: 200, maxHeight: 220, overflowY: 'auto',
           background: 'var(--vscode-dropdown-background)', border: `1px solid ${B}`,
-          borderRadius: 4, boxShadow: '0 4px 16px rgba(0,0,0,0.3)', padding: '4px 0'
+          borderRadius: 4,
+          boxShadow: direction === 'up' ? '0 -4px 16px rgba(0,0,0,0.3)' : '0 4px 16px rgba(0,0,0,0.3)',
+          padding: '4px 0'
         }}>
-          {options.length === 0 ?
-            <div style={{ padding: '8px 14px', fontSize: 12, opacity: 0.5 }}>No models available</div> :
-            options.map((opt, i) => {
-              const isSel = selected?.modelName === opt.selection.modelName && selected?.providerName === opt.selection.providerName;
+          <div
+            onClick={() => { setIsAuto(true); setOpen(false); }}
+            style={{
+              padding: '6px 14px', cursor: 'pointer', fontSize: 12,
+              background: isAuto ? 'var(--vscode-list-activeSelectionBackground)' : 'transparent',
+              color: isAuto ? 'var(--vscode-list-activeSelectionForeground)' : 'inherit',
+              fontWeight: isAuto ? 600 : 'normal'
+            }}
+            onMouseEnter={e => { if (!isAuto) e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'; }}
+            onMouseLeave={e => { if (!isAuto) e.currentTarget.style.background = 'transparent'; }}
+          >
+            Auto
+          </div>
+
+          <div style={{ height: 1, background: B, margin: '4px 0' }} />
+
+          {liveModels.length === 0 ? (
+            <div style={{ padding: '6px 14px', fontSize: 12, opacity: 0.5 }}>No models available</div>
+          ) : (
+            liveModels.map((opt, i) => {
+              const isSel = !isAuto && selectedModel?.modelName === opt.selection.modelName && selectedModel?.providerName === opt.selection.providerName;
               return (
                 <div key={i}
-                  onClick={() => { onSelect(opt.selection); setOpen(false); }}
+                  onClick={() => { onSelectModel(opt.selection); setIsAuto(false); setOpen(false); }}
                   style={{
                     padding: '6px 14px', cursor: 'pointer', fontSize: 12,
                     background: isSel ? 'var(--vscode-list-activeSelectionBackground)' : 'transparent',
                     color: isSel ? 'var(--vscode-list-activeSelectionForeground)' : 'inherit'
                   }}
                   onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'; }}
-                  onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = 'transparent'; }}>
+                  onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = 'transparent'; }}
+                >
                   {opt.name}
                 </div>
               );
             })
-          }
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+
+// ── ApprovalsDropdown ────────────────────────────────────────────────────────
+const ApprovalsDropdown = ({ approvalLevel, setApprovalLevel, direction = 'up' }: {
+  approvalLevel: PermissionLevel;
+  setApprovalLevel: (l: PermissionLevel) => void;
+  direction?: 'up' | 'down';
+}) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const accessor = useAccessor();
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [open]);
+
+  const items = [
+    {
+      level: 'default' as PermissionLevel,
+      title: 'Default Approvals',
+      desc: 'Copilot uses your configured settings',
+      icon: 'shield'
+    },
+    {
+      level: 'bypass' as PermissionLevel,
+      title: 'Bypass Approvals',
+      desc: 'All tool calls are auto-approved',
+      icon: 'warning'
+    },
+    {
+      level: 'autopilot' as PermissionLevel,
+      title: 'Autopilot (Preview)',
+      desc: 'Autonomously iterates from start to finish',
+      icon: 'rocket'
+    }
+  ];
+
+  const activeItem = items.find(i => i.level === approvalLevel) || items[0];
+
+  const handleLearnMore = () => {
+    try {
+      const notificationService = accessor.get('INotificationService');
+      notificationService.info('Default approvals utilize settings defined in Void Settings. Bypass auto-approves all filesystem read/write and terminal actions. Autopilot runs tasks autonomously.');
+    } catch {}
+    setOpen(false);
+  };
+
+  return (
+    <div ref={ref} style={{ position: 'relative', display: 'inline-flex' }}>
+      <div
+        onClick={() => setOpen(!open)}
+        style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', opacity: 0.7 }}
+        onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+        onMouseLeave={e => e.currentTarget.style.opacity = '0.7'}
+      >
+        <span className={ci(activeItem.icon)} style={{ fontSize: 12 }} />
+        <span>{activeItem.title}</span>
+        <span className={ci('chevron-down')} style={{ fontSize: 8, opacity: 0.5, marginLeft: 2 }} />
+      </div>
+
+      {open && (
+        <div style={{
+          position: 'absolute',
+          ...(direction === 'up' ? { bottom: '100%', marginBottom: 6 } : { top: '100%', marginTop: 4 }),
+          left: 0, zIndex: 9999,
+          width: 280, background: 'var(--vscode-dropdown-background)',
+          border: `1px solid ${B}`, borderRadius: 6,
+          boxShadow: direction === 'up' ? '0 -4px 16px rgba(0,0,0,0.4)' : '0 4px 16px rgba(0,0,0,0.4)',
+          padding: '6px'
+        }}>
+          {items.map((item) => {
+            const isSel = approvalLevel === item.level;
+            return (
+              <div key={item.level}
+                onClick={() => { setApprovalLevel(item.level); setOpen(false); }}
+                style={{
+                  padding: '8px 12px', cursor: 'pointer', borderRadius: 4, display: 'flex', gap: 10,
+                  background: isSel ? 'var(--vscode-list-activeSelectionBackground)' : 'transparent',
+                  color: isSel ? 'var(--vscode-list-activeSelectionForeground)' : 'inherit',
+                  marginBottom: 2
+                }}
+                onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'; }}
+                onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = 'transparent'; }}
+              >
+                <span className={ci(item.icon)} style={{ fontSize: 14, marginTop: 2, flexShrink: 0 }} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <div style={{ fontWeight: 600, fontSize: 12 }}>{item.title}</div>
+                  <div style={{ fontSize: 11, opacity: 0.6, lineHeight: 1.3 }}>{item.desc}</div>
+                </div>
+              </div>
+            );
+          })}
+
+          <div style={{ height: 1, background: B, margin: '6px 2px' }} />
+
+          <button
+            onClick={handleLearnMore}
+            style={{
+              width: '100%', padding: '6px 12px', fontSize: 12, fontWeight: 500, cursor: 'pointer',
+              borderRadius: 4, border: `1px solid ${B}`, background: 'rgba(255,255,255,0.03)',
+              color: 'var(--vscode-foreground)', fontFamily: 'var(--vscode-font-family)', textAlign: 'center'
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+          >
+            Learn more about permissions
+          </button>
         </div>
       )}
     </div>
@@ -127,7 +285,7 @@ const WorkspaceDropdown = ({ folders, selected, onSelect, commandService }: {
       onMouseEnter={e => e.currentTarget.style.textDecoration = 'underline'}
       onMouseLeave={e => e.currentTarget.style.textDecoration = 'none'}>
         📁 {name}
-        <span className="codicon codicon-chevron-down" style={{ fontSize: 8, opacity: 0.5, marginLeft: 2 }} />
+        <span className={ci('chevron-down')} style={{ fontSize: 8, opacity: 0.5, marginLeft: 2 }} />
       </span>
       {open && (
         <div style={{
@@ -146,12 +304,12 @@ const WorkspaceDropdown = ({ folders, selected, onSelect, commandService }: {
           ))}
           <div style={{ height: 1, background: B, margin: '4px 0' }} />
           <div
-            onClick={() => { commandService.executeCommand('workbench.action.files.openFolder'); setOpen(false); }}
+            onClick={() => { commandService.executeCommand('workbench.action.addRootFolder'); setOpen(false); }}
             style={{ padding: '6px 14px', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}
             onMouseEnter={e => e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'}
             onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-            <span className="codicon codicon-add" style={{ fontSize: 12 }} />
-            <span>Open Folder...</span>
+            <span className={ci('add')} style={{ fontSize: 12 }} />
+            <span>Add Folder...</span>
           </div>
         </div>
       )}
@@ -221,10 +379,10 @@ const FileTree = ({ folderURI }: { folderURI: URI }) => {
           onMouseEnter={e => e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'}
           onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
           {f.isDirectory ?
-            <span className={`codicon codicon-chevron-${isExpanded ? 'down' : 'right'}`} style={{ fontSize: 12, opacity: 0.6, width: 16 }} /> :
+            <span className={ci('chevron-' + (isExpanded ? 'down' : 'right'))} style={{ fontSize: 12, opacity: 0.6, width: 16 }} /> :
             <span style={{ width: 16 }} />
           }
-          <span className={`codicon ${f.isDirectory ? 'codicon-folder' : 'codicon-symbol-file'}`}
+          <span className={ci(f.isDirectory ? 'folder' : 'symbol-file')}
             style={{ fontSize: 14, color: f.isDirectory ? '#e2c08d' : '#c5947c' }} />
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
         </div>
@@ -237,8 +395,8 @@ const FileTree = ({ folderURI }: { folderURI: URI }) => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', overflowY: 'auto', height: '100%' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', fontSize: 12, fontWeight: 600, opacity: 0.8 }}>
-        <span className="codicon codicon-chevron-down" style={{ fontSize: 12 }} />
-        <span className="codicon codicon-folder" style={{ fontSize: 14, color: '#e2c08d' }} />
+        <span className={ci('chevron-down')} style={{ fontSize: 12 }} />
+        <span className={ci('folder')} style={{ fontSize: 14, color: '#e2c08d' }} />
         <span>{folderName}</span>
       </div>
       {files.map(f => renderItem(f, 1))}
@@ -256,7 +414,7 @@ const ChangesList = ({ activeSession, allThreads }: { activeSession: string | nu
   if (!activeSession || sortedURIs.length === 0) {
     return (
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', opacity: 0.35, gap: 6, padding: 24, textAlign: 'center' }}>
-        <span className="codicon codicon-source-control" style={{ fontSize: 28 }} />
+        <span className={ci('source-control')} style={{ fontSize: 28 }} />
         <div style={{ fontSize: 12, fontWeight: 500 }}>No changes yet</div>
         <div style={{ fontSize: 11 }}>Edits will appear here</div>
       </div>
@@ -274,9 +432,9 @@ const ChangesList = ({ activeSession, allThreads }: { activeSession: string | nu
             style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, padding: '3px 8px' }}
             onMouseEnter={e => e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'}
             onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-            <span className="codicon codicon-file" style={{ fontSize: 14, color: '#81b88b' }} />
+            <span className={ci('file')} style={{ fontSize: 14, color: '#81b88b' }} />
             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
-            {state?.isStreaming && <span className="codicon codicon-loading codicon-modifier-spin" style={{ fontSize: 12, opacity: 0.5 }} />}
+            {state?.isStreaming && <span className={ci('loading') + ' ' + _CI_BASE + '-modifier-spin'} style={{ fontSize: 12, opacity: 0.5 }} />}
           </div>
         );
       })}
@@ -288,32 +446,73 @@ const ChangesList = ({ activeSession, allThreads }: { activeSession: string | nu
 const ChatMessage = ({ msg, modelName }: { msg: any; modelName: string }) => {
   const isUser = msg.role === 'user';
   const isTool = msg.role === 'tool' || msg.tool_calls;
+  const isCheckpoint = msg.role === 'checkpoint';
 
-  if (isTool) {
-    const toolName = msg.tool_calls?.[0]?.name || msg.tool_call_id || 'tool';
+  if (isCheckpoint) return null;
+
+  // Filter out completely empty assistant messages
+  if (msg.role === 'assistant' && !msg.displayContent?.trim() && !msg.content?.trim() && !msg.reasoning?.trim()) {
+    return null;
+  }
+
+  // Handle cancelled tool calls cleanly
+  if (msg.role === 'interrupted_streaming_tool') {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 12px', margin: '2px 0', background: 'rgba(255,255,255,0.02)', borderRadius: 4, fontSize: 12, opacity: 0.65 }}>
-        <span className="codicon codicon-tools" style={{ fontSize: 12, color: '#60a5fa' }} />
-        <span style={{ fontWeight: 500, color: '#60a5fa' }}>{toolName}</span>
-        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.5 }}>{msg.content?.slice(0, 80)}</span>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', margin: '4px 0',
+        background: 'rgba(255,255,255,0.02)', borderRadius: 6, fontSize: 12, opacity: 0.65,
+        border: `1px solid rgba(255,255,255,0.03)`
+      }}>
+        <span className={ci('error')} style={{ fontSize: 12, color: 'var(--vscode-errorForeground)' }} />
+        <span style={{ opacity: 0.7 }}>Tool call <strong>{msg.name}</strong> was cancelled.</span>
       </div>
     );
   }
 
-  return (
-    <div style={{ display: 'flex', gap: 10, padding: '10px 0' }}>
+  if (isTool) {
+    const toolName = msg.tool_calls?.[0]?.name || msg.tool_call_id || 'tool';
+    return (
       <div style={{
-        width: 24, height: 24, borderRadius: 6, flexShrink: 0, marginTop: 2,
+        display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', margin: '4px 0',
+        background: 'rgba(255,255,255,0.02)', borderRadius: 6, fontSize: 12, opacity: 0.8,
+        border: `1px solid rgba(255,255,255,0.03)`
+      }}>
+        <span className={ci('tools')} style={{ fontSize: 12, color: 'var(--vscode-textLink-foreground)' }} />
+        <span style={{ fontWeight: 600, color: 'var(--vscode-textLink-foreground)' }}>{toolName}</span>
+        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.5, fontStyle: 'italic' }}>
+          {msg.content?.slice(0, 80)}
+        </span>
+      </div>
+    );
+  }
+
+  const content = msg.displayContent || msg.content || '';
+
+  return (
+    <div style={{
+      display: 'flex', gap: 14, padding: '16px 12px', margin: '8px 0',
+      borderRadius: 8, background: isUser ? 'rgba(255,255,255,0.01)' : 'transparent',
+      border: isUser ? `1px solid rgba(255,255,255,0.02)` : 'none'
+    }}>
+      <div style={{
+        width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         background: isUser ? 'rgba(255,255,255,0.08)' : 'var(--vscode-button-background)',
-        color: isUser ? 'var(--vscode-foreground)' : 'var(--vscode-button-foreground)'
+        color: isUser ? 'var(--vscode-foreground)' : 'var(--vscode-button-foreground)',
+        boxShadow: isUser ? 'none' : '0 2px 8px rgba(0, 122, 255, 0.2)'
       }}>
-        <span className={`codicon ${isUser ? 'codicon-account' : 'codicon-sparkle'}`} style={{ fontSize: 13 }} />
+        <span className={ci(isUser ? 'account' : 'sparkle')} style={{ fontSize: 14 }} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 3, opacity: 0.6 }}>{isUser ? 'You' : modelName || 'Agent'}</div>
-        <div style={{ fontSize: 13, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-          {msg.displayContent || msg.content || ''}
+        <div style={{
+          fontSize: 12, fontWeight: 600, marginBottom: 6,
+          color: isUser ? 'var(--vscode-foreground)' : 'var(--vscode-textLink-foreground)',
+          opacity: isUser ? 0.7 : 1
+        }}>
+          {isUser ? 'You' : modelName || 'Agent'}
+        </div>
+        <div className="prose-container" style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--vscode-foreground)' }}>
+          <ChatMarkdownRender string={content} chatMessageLocation={undefined} />
         </div>
       </div>
     </div>
@@ -331,6 +530,7 @@ export const AgentsWindow = () => {
   const workspaceContextService = accessor.get('IWorkspaceContextService');
   const voidSettingsService = accessor.get('IVoidSettingsService');
   const sessionRegistry = accessor.get('ISessionRegistryService');
+  const commandService = accessor.get('ICommandService');
 
   const threadsState = useChatThreadsState();
   const settingsState = useSettingsState();
@@ -363,6 +563,19 @@ export const AgentsWindow = () => {
   const [selectedModel, setSelectedModel] = useState<ModelSelection | null>(null);
   const [activeCustomization, setActiveCustomization] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  const [hoveredSession, setHoveredSession] = useState<string | null>(null);
+
+  const handleDeleteSession = async (e: React.MouseEvent, sessionId: string, threadId: string) => {
+    e.stopPropagation();
+    if (sessionRegistry) {
+      try { await sessionRegistry.remove(sessionId); } catch {}
+    }
+    chatThreadsService.deleteThread(threadId);
+    if (activeSession === threadId) {
+      setActiveSession(null);
+    }
+  };
 
   const folders = workspaceContextService.getWorkspace().folders || [];
   const currentWorkspace = folders[0]?.name || 'Forge IDE';
@@ -416,10 +629,14 @@ export const AgentsWindow = () => {
 
   // ── Skills & MCP counts ──────────────────────────────────────────────────
   const [skillsCount, setSkillsCount] = useState(0);
+  const [skillsList, setSkillsList] = useState<ISkill[]>([]);
   useEffect(() => {
     try {
       const skillsService = accessor.get('ISkillsService');
-      skillsService.getSkills([]).then((s: any[]) => setSkillsCount(s.length)).catch(() => {});
+      skillsService.getSkills([]).then((s: any[]) => {
+        setSkillsCount(s.length);
+        setSkillsList(s);
+      }).catch(() => {});
     } catch {}
   }, []);
   const mcpCount = Object.keys(mcpState?.mcpServerOfName || {}).length;
@@ -456,15 +673,15 @@ export const AgentsWindow = () => {
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [activeThread?.messages?.length]);
 
   // ── Customization items ──────────────────────────────────────────────────
-  const customizations: { emoji: string; label: string; count: number }[] = [
-    { emoji: '🏠', label: 'Overview', count: 0 },
-    { emoji: '🤖', label: 'Agents', count: 0 },
-    { emoji: '💡', label: 'Skills', count: skillsCount },
-    { emoji: '📖', label: 'Instructions', count: 0 },
-    { emoji: '⚡', label: 'Hooks', count: 0 },
-    { emoji: '🖥️', label: 'MCP Servers', count: mcpCount },
-    { emoji: '🔌', label: 'Plugins', count: 0 },
-    { emoji: '🛠️', label: 'Tools', count: 0 },
+  const customizations: { icon: string; label: string; count: number }[] = [
+    { icon: 'home', label: 'Overview', count: 0 },
+    { icon: 'robot', label: 'Agents', count: 0 },
+    { icon: 'lightbulb', label: 'Skills', count: skillsCount },
+    { icon: 'book', label: 'Instructions', count: 0 },
+    { icon: 'zap', label: 'Hooks', count: 0 },
+    { icon: 'server', label: 'MCP Servers', count: mcpCount },
+    { icon: 'extensions', label: 'Plugins', count: 0 },
+    { icon: 'tools', label: 'Tools', count: 0 },
   ];
 
   const sb: React.CSSProperties = { background: 'var(--vscode-sideBar-background)', color: 'var(--vscode-sideBar-foreground, var(--vscode-foreground))' };
@@ -490,15 +707,15 @@ export const AgentsWindow = () => {
       }}>
         {/* Left: nav */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, WebkitAppRegion: 'no-drag' as any }}>
-          <SidebarBtn icon="codicon-layout-sidebar-left" label="Toggle Sidebar" />
+          <SidebarBtn icon={'layout-sidebar-left'} label="Toggle Sidebar" />
           <div style={{ width: 4 }} />
-          <SidebarBtn icon="codicon-arrow-left" label="Back" />
-          <SidebarBtn icon="codicon-arrow-right" label="Forward" />
+          <SidebarBtn icon={'arrow-left'} label="Back" />
+          <SidebarBtn icon={'arrow-right'} label="Forward" />
         </div>
 
         {/* Center: breadcrumb */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, WebkitAppRegion: 'no-drag' as any }}>
-          <span className="codicon codicon-sparkle" style={{ fontSize: 14, opacity: 0.6 }} />
+          <span className={ci('sparkle')} style={{ fontSize: 14, opacity: 0.6 }} />
           <span>
             {activeSession
               ? `${activeThread?.messages?.[0]?.content?.slice(0, 30) || 'Session'} · ${currentWorkspace}`
@@ -509,12 +726,12 @@ export const AgentsWindow = () => {
 
         {/* Right: actions */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 2, WebkitAppRegion: 'no-drag' as any }}>
-          <SidebarBtn icon="codicon-play" label="Run" />
-          <SidebarBtn icon="codicon-debug-disconnect" label="Stop" />
+          <SidebarBtn icon={'play'} label="Run" />
+          <SidebarBtn icon={'debug-disconnect'} label="Stop" />
           <span style={{ width: 8 }} />
-          <SidebarBtn icon="codicon-layout-sidebar-right-off" label="Toggle Panel" />
-          <SidebarBtn icon="codicon-settings-gear" label="Settings" />
-          <SidebarBtn icon="codicon-account" label="Account" />
+          <SidebarBtn icon={'layout-sidebar-right-off'} label="Toggle Panel" />
+          <SidebarBtn icon={'settings-gear'} label="Settings" />
+          <SidebarBtn icon={'account'} label="Account" />
         </div>
       </div>
 
@@ -538,8 +755,8 @@ export const AgentsWindow = () => {
                 New
                 <span style={{ opacity: 0.6, fontSize: 10 }}>{isMac ? '⌘N' : 'Ctrl+N'}</span>
               </button>
-              <SidebarBtn icon="codicon-filter" label="Filter" />
-              <SidebarBtn icon="codicon-search" label="Search" />
+              <SidebarBtn icon={'filter'} label="Filter" />
+              <SidebarBtn icon={'search'} label="Search" />
             </div>
           </div>
 
@@ -552,6 +769,7 @@ export const AgentsWindow = () => {
                 const stream = streamStateMap[session.chatThreadId];
                 const status = stream?.error ? 'error' : stream?.isRunning ? 'running' : session.status;
                 const active = activeSession === session.chatThreadId;
+                const isHovered = hoveredSession === session.id;
                 const title = session.title || 'New Session';
                 let timeStr = '';
                 try {
@@ -562,18 +780,37 @@ export const AgentsWindow = () => {
                 return (
                   <div key={session.id}
                     onClick={() => { chatThreadsService.switchToThread(session.chatThreadId); setActiveSession(session.chatThreadId); setActiveCustomization(null); }}
+                    onMouseEnter={() => setHoveredSession(session.id)}
+                    onMouseLeave={() => setHoveredSession(null)}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 8, padding: '6px 14px', cursor: 'pointer',
-                      background: active ? 'var(--vscode-list-activeSelectionBackground)' : 'transparent',
+                      background: active
+                        ? 'var(--vscode-list-activeSelectionBackground)'
+                        : isHovered
+                          ? 'var(--vscode-list-hoverBackground)'
+                          : 'transparent',
                       color: active ? 'var(--vscode-list-activeSelectionForeground)' : 'inherit'
-                    }}
-                    onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'; }}
-                    onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent'; }}>
+                    }}>
                     <StatusDot status={status} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 12, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
                       {timeStr && <div style={{ fontSize: 10, opacity: 0.45, marginTop: 1 }}>{timeStr}</div>}
                     </div>
+                    {isHovered && (
+                      <button
+                        onClick={e => handleDeleteSession(e, session.id, session.chatThreadId)}
+                        style={{
+                          background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px',
+                          color: 'inherit', opacity: 0.6, display: 'inline-flex', alignItems: 'center',
+                          justifyContent: 'center', borderRadius: 3, outline: 'none'
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.opacity = '0.6'; e.currentTarget.style.background = 'none'; }}
+                        title="Delete Session"
+                      >
+                        <span className={ci('trash')} style={{ fontSize: 12 }} />
+                      </button>
+                    )}
                   </div>
                 );
               })
@@ -599,7 +836,7 @@ export const AgentsWindow = () => {
                   onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = 'var(--vscode-list-hoverBackground)'; }}
                   onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = 'transparent'; }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                    <span style={{ fontSize: 13, width: 16, display: 'inline-flex', justifyContent: 'center' }}>{item.emoji}</span>
+                    <span className={ci(item.icon)} style={{ fontSize: 13, width: 16, display: 'inline-flex', justifyContent: 'center' }} />
                     <span>{item.label}</span>
                   </div>
                   {item.count > 0 && <Badge count={item.count} />}
@@ -612,23 +849,40 @@ export const AgentsWindow = () => {
         {/* ═══ CENTER PANEL ════════════════════════════════════════════ */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', ...eb }}>
 
-          {!activeSession && !activeCustomization ? (
+          {folders.length === 0 ? (
+            /* ── No Folder Open View ───────────────────────────────────── */
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 32, gap: 12 }}>
+              <span className={ci('folder')} style={{ fontSize: 48, opacity: 0.4 }} />
+              <div style={{ fontSize: 16, fontWeight: 500 }}>No Folder Open</div>
+              <div style={{ fontSize: 13, opacity: 0.6, maxWidth: 320, textAlign: 'center', lineHeight: 1.5 }}>
+                Open a folder to start creating sessions and pair-programming with the agent.
+              </div>
+              <button
+                onClick={() => commandService.executeCommand('workbench.action.addRootFolder')}
+                style={{
+                  marginTop: 8, padding: '6px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  borderRadius: 4, border: 'none', background: 'var(--vscode-button-background)',
+                  color: 'var(--vscode-button-foreground)', fontFamily: 'var(--vscode-font-family)'
+                }}
+              >
+                Open Folder...
+              </button>
+            </div>
+          ) : !activeSession && !activeCustomization ? (
             /* ── New Session View ──────────────────────────────────────── */
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32 }}>
               <div style={{ width: '100%', maxWidth: 540 }}>
 
-                {/* "New session in X with Y" */}
+                {/* "New session in X" */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, marginBottom: 14, flexWrap: 'wrap', justifyContent: 'center' }}>
                   <span style={{ opacity: 0.6 }}>New session in</span>
                   <WorkspaceDropdown folders={folders} selected={selectedFolder} onSelect={setSelectedFolder} commandService={commandService} />
-                  <span style={{ opacity: 0.6 }}>with</span>
-                  <ModelDropdown options={liveModels} selected={selectedModel} onSelect={handleSelectModel} />
                 </div>
 
                 {/* Prompt */}
                 <div style={{
-                  border: `1px solid ${B}`, borderRadius: 6, background: 'var(--vscode-input-background)',
-                  overflow: 'hidden', transition: 'border-color 0.15s'
+                  border: `1px solid ${B}`, borderRadius: 8, background: 'var(--vscode-input-background)',
+                  overflow: 'hidden', transition: 'border-color 0.15s', padding: '10px 12px 8px'
                 }}
                 onFocus={e => e.currentTarget.style.borderColor = 'var(--vscode-focusBorder)'}
                 onBlur={e => e.currentTarget.style.borderColor = B}>
@@ -636,60 +890,83 @@ export const AgentsWindow = () => {
                     value={prompt}
                     onChange={e => setPrompt(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleCreateSession(); } }}
-                    placeholder="What's next on your roadmap?"
+                    placeholder="Pitch your idea"
                     rows={3}
                     style={{
-                      display: 'block', width: '100%', padding: '12px 14px', resize: 'none',
+                      display: 'block', width: '100%', padding: '0 0 8px 0', resize: 'none',
                       fontFamily: 'var(--vscode-font-family)', fontSize: 13,
                       background: 'transparent', border: 'none', outline: 'none',
                       color: 'var(--vscode-input-foreground)', boxSizing: 'border-box', lineHeight: 1.5
                     }}
                   />
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', borderTop: `1px solid rgba(255,255,255,0.04)` }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <SidebarBtn icon="codicon-add" label="Add context" />
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8, borderTop: `1px solid rgba(255,255,255,0.04)` }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <button onClick={() => commandService.executeCommand('workbench.action.addRootFolder')}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex', alignItems: 'center', color: 'inherit', opacity: 0.6 }}
+                        onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                        onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
+                        title="Add context"
+                      >
+                        <span className={ci('add')} style={{ fontSize: 13 }} />
+                      </button>
+
+                      <div style={{ width: 1, height: 12, background: 'rgba(255,255,255,0.12)' }} />
+
                       <button onClick={() => setAgentMode(agentMode === 'interactive' ? 'background' : 'interactive')}
                         style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px',
-                          fontSize: 11, cursor: 'pointer', borderRadius: 3, border: 'none', outline: 'none',
-                          background: 'rgba(255,255,255,0.06)', color: 'var(--vscode-foreground)',
+                          display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 6px',
+                          fontSize: 11, fontWeight: 500, cursor: 'pointer', borderRadius: 3, border: 'none', outline: 'none',
+                          background: 'none', color: 'var(--vscode-foreground)', opacity: 0.6,
                           fontFamily: 'var(--vscode-font-family)'
-                        }}>
-                        <span className="codicon codicon-sparkle" style={{ fontSize: 12 }} />
-                        {agentMode === 'interactive' ? 'Agent' : 'Background'}
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                        onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
+                      >
+                        <span className={ci('code')} style={{ fontSize: 12 }} />
+                        <span>{agentMode === 'interactive' ? 'Agent' : 'Background'}</span>
                       </button>
-                      <button onClick={() => setIsAuto(!isAuto)}
-                        style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px',
-                          fontSize: 11, cursor: 'pointer', borderRadius: 3, border: 'none', outline: 'none',
-                          background: isAuto ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.06)',
-                          color: isAuto ? '#22c55e' : 'var(--vscode-foreground)',
-                          fontFamily: 'var(--vscode-font-family)'
-                        }}>
-                        Auto
-                      </button>
+
+                      <div style={{ width: 1, height: 12, background: 'rgba(255,255,255,0.12)' }} />
+
+                      <ModelSelectButton
+                        liveModels={liveModels}
+                        selectedModel={selectedModel}
+                        isAuto={isAuto}
+                        onSelectModel={handleSelectModel}
+                        setIsAuto={setIsAuto}
+                        direction="down"
+                      />
                     </div>
-                    <SidebarBtn icon="codicon-newline" label="Send" onClick={handleCreateSession} />
+
+                    <button onClick={handleCreateSession}
+                      style={{
+                        background: 'none', border: 'none', cursor: 'pointer', padding: 2,
+                        display: 'flex', alignItems: 'center', color: 'inherit',
+                        opacity: prompt.trim() ? 0.9 : 0.4
+                      }}
+                      disabled={!prompt.trim()}
+                      title="Send"
+                    >
+                      <span className={ci('newline')} style={{ fontSize: 13 }} />
+                    </button>
                   </div>
                 </div>
 
                 {/* Footer */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, opacity: 0.4, padding: '8px 4px 0' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <span className="codicon codicon-shield" style={{ fontSize: 12 }} />
-                    <span>{approvalLevel === 'default' ? 'Default' : approvalLevel === 'bypass' ? 'Bypass' : 'Autopilot'} Approvals</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <ApprovalsDropdown approvalLevel={approvalLevel} setApprovalLevel={setApprovalLevel} direction="down" />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <div
-                      onClick={() => commandService.executeCommand('workbench.action.files.openFolder')}
+                      onClick={() => commandService.executeCommand('workbench.action.addRootFolder')}
                       style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}
                       onMouseEnter={e => e.currentTarget.style.opacity = '1'}
                       onMouseLeave={e => e.currentTarget.style.opacity = '0.7'}>
-                      <span className="codicon codicon-folder" style={{ fontSize: 12 }} />
+                      <span className={ci('folder')} style={{ fontSize: 12 }} />
                       <span>Folder</span>
                     </div>
+                    <span style={{ opacity: 0.3 }}>|</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <span className="codicon codicon-git-branch" style={{ fontSize: 12 }} />
+                      <span className={ci('git-branch')} style={{ fontSize: 12 }} />
                       <span>Branch</span>
                     </div>
                   </div>
@@ -698,14 +975,53 @@ export const AgentsWindow = () => {
             </div>
           ) : activeCustomization ? (
             /* ── Customization View ────────────────────────────────────── */
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.5, gap: 8, flexDirection: 'column' }}>
-              <span className="codicon codicon-settings" style={{ fontSize: 32 }} />
-              <div style={{ fontSize: 14, fontWeight: 500 }}>{activeCustomization}</div>
-              <div style={{ fontSize: 12 }}>Managed by the main editor.</div>
-              <button onClick={() => setActiveCustomization(null)}
-                style={{ marginTop: 8, padding: '4px 12px', fontSize: 12, cursor: 'pointer', borderRadius: 3, border: 'none', background: 'var(--vscode-button-background)', color: 'var(--vscode-button-foreground)', fontFamily: 'var(--vscode-font-family)' }}>
-                Back
-              </button>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: 24, overflowY: 'auto' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+                <span className={ci(customizations.find(c => c.label === activeCustomization)?.icon || 'settings')} style={{ fontSize: 20 }} />
+                <h2 style={{ fontSize: 18, fontWeight: 600, margin: 0 }}>{activeCustomization}</h2>
+              </div>
+
+              {activeCustomization === 'Skills' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {skillsList.length === 0 ? (
+                    <div style={{ opacity: 0.5, fontSize: 13 }}>No custom skills loaded. Add skills under global or project customization roots.</div>
+                  ) : (
+                    skillsList.map((skill, i) => (
+                      <div key={i} style={{ border: `1px solid ${B}`, borderRadius: 6, padding: '12px 16px', background: 'rgba(255,255,255,0.02)' }}>
+                        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>{skill.name}</div>
+                        <div style={{ fontSize: 12, opacity: 0.7, lineHeight: 1.4 }}>{skill.description}</div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              ) : activeCustomization === 'MCP Servers' ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {mcpCount === 0 ? (
+                    <div style={{ opacity: 0.5, fontSize: 13 }}>No MCP servers registered.</div>
+                  ) : (
+                    Object.entries(mcpState?.mcpServerOfName || {}).map(([name, server]: [string, any], i) => (
+                      <div key={i} style={{ border: `1px solid ${B}`, borderRadius: 6, padding: '12px 16px', background: 'rgba(255,255,255,0.02)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13 }}>{name}</div>
+                          <span style={{ fontSize: 10, background: 'rgba(34,197,94,0.15)', color: '#22c55e', padding: '1px 6px', borderRadius: 10, fontWeight: 600 }}>Active</span>
+                        </div>
+                        {server?.instructions && <div style={{ fontSize: 11, opacity: 0.6, marginTop: 4 }}>{server.instructions}</div>}
+                      </div>
+                    ))
+                  )}
+                </div>
+              ) : (
+                <div style={{ opacity: 0.5, fontSize: 13 }}>
+                  Customization details are configured and managed in the main editor.
+                </div>
+              )}
+
+              <div style={{ marginTop: 24 }}>
+                <button onClick={() => setActiveCustomization(null)}
+                  style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', borderRadius: 3, border: 'none', background: 'var(--vscode-button-background)', color: 'var(--vscode-button-foreground)', fontFamily: 'var(--vscode-font-family)' }}>
+                  Back
+                </button>
+              </div>
             </div>
           ) : (
             /* ── Active Session Chat ───────────────────────────────────── */
@@ -717,7 +1033,7 @@ export const AgentsWindow = () => {
                   ))}
                   {isStreaming && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 0', opacity: 0.45 }}>
-                      <span className="codicon codicon-loading codicon-modifier-spin" style={{ fontSize: 14 }} />
+                      <span className={ci('loading') + ' ' + _CI_BASE + '-modifier-spin'} style={{ fontSize: 14 }} />
                       <span style={{ fontSize: 12 }}>Thinking…</span>
                     </div>
                   )}
@@ -727,9 +1043,8 @@ export const AgentsWindow = () => {
               <div style={{ padding: '10px 20px 14px', borderTop: `1px solid ${B}`, flexShrink: 0 }}>
                 <div style={{ maxWidth: 680, margin: '0 auto' }}>
                   <div style={{
-                    display: 'flex', alignItems: 'flex-end', gap: 8,
-                    background: 'var(--vscode-input-background)', border: `1px solid ${B}`,
-                    borderRadius: 6, padding: '8px 10px', transition: 'border-color 0.15s'
+                    border: `1px solid ${B}`, borderRadius: 8, background: 'var(--vscode-input-background)',
+                    overflow: 'hidden', transition: 'border-color 0.15s', padding: '10px 12px 8px'
                   }}
                   onFocus={e => e.currentTarget.style.borderColor = 'var(--vscode-focusBorder)'}
                   onBlur={e => e.currentTarget.style.borderColor = B}>
@@ -738,23 +1053,84 @@ export const AgentsWindow = () => {
                       onChange={e => setFollowupText(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendFollowup(); } }}
                       placeholder="Send a follow-up…"
-                      rows={1}
+                      rows={2}
                       style={{
-                        flex: 1, background: 'transparent', border: 'none', outline: 'none',
-                        fontSize: 13, color: 'var(--vscode-input-foreground)',
-                        fontFamily: 'var(--vscode-font-family)', resize: 'none', lineHeight: '20px', maxHeight: 120
+                        display: 'block', width: '100%', padding: '0 0 8px 0', resize: 'none',
+                        fontFamily: 'var(--vscode-font-family)', fontSize: 13,
+                        background: 'transparent', border: 'none', outline: 'none',
+                        color: 'var(--vscode-input-foreground)', boxSizing: 'border-box', lineHeight: 1.5
                       }}
                     />
-                    <button onClick={handleSendFollowup} disabled={!followupText.trim()}
-                      style={{
-                        width: 26, height: 26, borderRadius: 4, border: 'none',
-                        background: followupText.trim() ? 'var(--vscode-button-background)' : 'transparent',
-                        color: followupText.trim() ? 'var(--vscode-button-foreground)' : 'var(--vscode-disabledForeground)',
-                        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        flexShrink: 0
-                      }}>
-                      <span className="codicon codicon-send" style={{ fontSize: 13 }} />
-                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8, borderTop: `1px solid rgba(255,255,255,0.04)` }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <button onClick={() => commandService.executeCommand('workbench.action.addRootFolder')}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex', alignItems: 'center', color: 'inherit', opacity: 0.6 }}
+                          onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                          onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
+                          title="Add context"
+                        >
+                          <span className={ci('add')} style={{ fontSize: 13 }} />
+                        </button>
+
+                        <div style={{ width: 1, height: 12, background: 'rgba(255,255,255,0.12)' }} />
+
+                        <button onClick={() => setAgentMode(agentMode === 'interactive' ? 'background' : 'interactive')}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 6px',
+                            fontSize: 11, fontWeight: 500, cursor: 'pointer', borderRadius: 3, border: 'none', outline: 'none',
+                            background: 'none', color: 'var(--vscode-foreground)', opacity: 0.6,
+                            fontFamily: 'var(--vscode-font-family)'
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                          onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
+                        >
+                          <span className={ci('code')} style={{ fontSize: 12 }} />
+                          <span>{agentMode === 'interactive' ? 'Agent' : 'Background'}</span>
+                        </button>
+
+                        <div style={{ width: 1, height: 12, background: 'rgba(255,255,255,0.12)' }} />
+
+                        <ModelSelectButton
+                          liveModels={liveModels}
+                          selectedModel={selectedModel}
+                          isAuto={isAuto}
+                          onSelectModel={handleSelectModel}
+                          setIsAuto={setIsAuto}
+                        />
+                      </div>
+
+                      <button onClick={handleSendFollowup}
+                        style={{
+                          background: 'none', border: 'none', cursor: 'pointer', padding: 2,
+                          display: 'flex', alignItems: 'center', color: 'inherit',
+                          opacity: followupText.trim() ? 0.9 : 0.4
+                        }}
+                        disabled={!followupText.trim()}
+                        title="Send"
+                      >
+                        <span className={ci('newline')} style={{ fontSize: 13 }} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Footer */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, opacity: 0.4, padding: '8px 4px 0' }}>
+                    <ApprovalsDropdown approvalLevel={approvalLevel} setApprovalLevel={setApprovalLevel} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div
+                        onClick={() => commandService.executeCommand('workbench.action.addRootFolder')}
+                        style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}
+                        onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                        onMouseLeave={e => e.currentTarget.style.opacity = '0.7'}>
+                        <span className={ci('folder')} style={{ fontSize: 12 }} />
+                        <span>Folder</span>
+                      </div>
+                      <span style={{ opacity: 0.3 }}>|</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span className={ci('git-branch')} style={{ fontSize: 12 }} />
+                        <span>Branch</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -782,8 +1158,8 @@ export const AgentsWindow = () => {
               })}
             </div>
             <div style={{ display: 'flex', gap: 2 }}>
-              <SidebarBtn icon="codicon-search" label="Search" />
-              <SidebarBtn icon="codicon-layout-sidebar-right" label="Collapse" />
+              <SidebarBtn icon={'search'} label="Search" />
+              <SidebarBtn icon={'layout-sidebar-right'} label="Collapse" />
             </div>
           </div>
           <div style={{ flex: 1, overflowY: 'auto' }}>

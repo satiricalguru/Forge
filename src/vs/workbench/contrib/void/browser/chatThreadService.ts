@@ -448,7 +448,11 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		for (const id in threads) {
 			const thread = threads[id];
 			if (thread) {
-				void this._saveThreadToForgeSessions(thread);
+				if (thread.messages.length > 0) {
+					void this._saveThreadToForgeSessions(thread);
+				} else {
+					void this._deleteThreadFromForgeSessions(id);
+				}
 			}
 		}
 	}
@@ -1914,10 +1918,23 @@ We only need to do it for files that were edited since `from`, ie files between 
 		const newThreads = { ...currentThreads };
 		delete newThreads[threadId];
 
+		let nextCurrentThreadId = this.state.currentThreadId;
+		if (this.state.currentThreadId === threadId) {
+			const remainingIds = Object.keys(newThreads);
+			if (remainingIds.length > 0) {
+				nextCurrentThreadId = remainingIds[0];
+			} else {
+				// start a new default thread
+				const newThread = newThreadObject();
+				newThreads[newThread.id] = newThread;
+				nextCurrentThreadId = newThread.id;
+			}
+		}
+
 		// store the updated threads
 		this._storeAllThreads(newThreads);
 		void this._deleteThreadFromForgeSessions(threadId);
-		this._setState({ ...this.state, allThreads: newThreads })
+		this._setState({ ...this.state, allThreads: newThreads, currentThreadId: nextCurrentThreadId })
 	}
 
 	duplicateThread(threadId: string) {
