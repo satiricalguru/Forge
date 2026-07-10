@@ -467,7 +467,7 @@ const ChangesList = ({ activeSession, allThreads }: { activeSession: string | nu
 };
 
 // ── ChatMessage ──────────────────────────────────────────────────────────────
-const ChatMessage = ({ msg, modelName }: { msg: any; modelName: string }) => {
+const ChatMessage = ({ msg, modelName, isLocal }: { msg: any; modelName: string; isLocal?: boolean }) => {
   const isUser = msg.role === 'user';
   const isTool = msg.role === 'tool' || msg.tool_calls;
   const isCheckpoint = msg.role === 'checkpoint';
@@ -525,7 +525,7 @@ const ChatMessage = ({ msg, modelName }: { msg: any; modelName: string }) => {
         color: isUser ? 'var(--vscode-foreground)' : 'var(--vscode-button-foreground)',
         boxShadow: isUser ? 'none' : '0 2px 8px rgba(0, 122, 255, 0.2)'
       }}>
-        <ForgeIcon name={isUser ? 'account' : 'sparkle'} size={14} />
+        <ForgeIcon name={isUser ? 'account' : (isLocal ? 'server' : 'sparkle')} size={14} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{
@@ -597,6 +597,49 @@ export const AgentsWindow = () => {
   const followupTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
+
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState(200);
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(240);
+
+  // Left Sidebar Resizer dragging
+  const handleLeftMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = leftSidebarWidth;
+
+    const doDrag = (moveEvent: MouseEvent) => {
+      const newWidth = Math.max(140, Math.min(500, startWidth + (moveEvent.clientX - startX)));
+      setLeftSidebarWidth(newWidth);
+    };
+
+    const stopDrag = () => {
+      document.removeEventListener('mousemove', doDrag);
+      document.removeEventListener('mouseup', stopDrag);
+    };
+
+    document.addEventListener('mousemove', doDrag);
+    document.addEventListener('mouseup', stopDrag);
+  };
+
+  // Right Sidebar Resizer dragging
+  const handleRightMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = rightSidebarWidth;
+
+    const doDrag = (moveEvent: MouseEvent) => {
+      const newWidth = Math.max(160, Math.min(600, startWidth - (moveEvent.clientX - startX)));
+      setRightSidebarWidth(newWidth);
+    };
+
+    const stopDrag = () => {
+      document.removeEventListener('mousemove', doDrag);
+      document.removeEventListener('mouseup', stopDrag);
+    };
+
+    document.addEventListener('mousemove', doDrag);
+    document.addEventListener('mouseup', stopDrag);
+  };
 
   const handleDeleteSession = async (e: React.MouseEvent, sessionId: string, threadId: string) => {
     e.stopPropagation();
@@ -674,20 +717,23 @@ export const AgentsWindow = () => {
     chatThreadsService.openNewThread({ agentType: agentMode, isAuto });
     const t = chatThreadsService.getCurrentThread();
     if (!t) return;
+
+    setActiveSession(t.id);
+    const userPrompt = prompt;
+    setPrompt('');
+
     if (sessionRegistry) {
       try {
         await sessionRegistry.create({
           workspacePath: selectedFolder?.fsPath ?? '', agentType: agentMode,
-          title: prompt.slice(0, 60), providerId: selectedModel?.providerName ?? '',
+          title: userPrompt.slice(0, 60), providerId: selectedModel?.providerName ?? '',
           modelId: selectedModel?.modelName ?? '', permissionLevel: approvalLevel,
           chatThreadId: t.id,
         });
       } catch {}
     }
     try {
-      await chatThreadsService.addUserMessageAndStreamResponse({ userMessage: prompt, threadId: t.id });
-      setActiveSession(t.id);
-      setPrompt('');
+      await chatThreadsService.addUserMessageAndStreamResponse({ userMessage: userPrompt, threadId: t.id });
     } catch {}
   };
 
@@ -785,7 +831,7 @@ export const AgentsWindow = () => {
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
 
         {/* ═══ LEFT SIDEBAR ════════════════════════════════════════════ */}
-        {isLeftSidebarVisible && <div style={{ width: 200, flexShrink: 0, display: 'flex', flexDirection: 'column', borderRight: `1px solid ${B}`, ...sb }}>
+        {isLeftSidebarVisible && <div style={{ width: leftSidebarWidth, flexShrink: 0, display: 'flex', flexDirection: 'column', borderRight: `1px solid ${B}`, ...sb }}>
           {/* Sessions header */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 35, padding: '0 8px 0 14px', borderBottom: `1px solid ${B}` }}>
             <span style={{ fontSize: 12, fontWeight: 600 }}>Sessions</span>
@@ -897,6 +943,19 @@ export const AgentsWindow = () => {
             })}
           </div>
         </div>}
+
+        {isLeftSidebarVisible && (
+          <div
+            onMouseDown={handleLeftMouseDown}
+            style={{
+              width: 3, cursor: 'col-resize', flexShrink: 0,
+              marginLeft: -2, marginRight: -1, zIndex: 10,
+              background: 'transparent', transition: 'background 0.15s'
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = 'var(--vscode-focusBorder)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          />
+        )}
 
         {/* ═══ CENTER PANEL ════════════════════════════════════════════ */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', ...eb }}>
@@ -1079,7 +1138,12 @@ export const AgentsWindow = () => {
               <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px' }}>
                 <div style={{ maxWidth: 680, margin: '0 auto' }}>
                   {activeThread?.messages?.map((msg: any, i: number) => (
-                    <ChatMessage key={i} msg={msg} modelName={selectedModel?.modelName || 'Agent'} />
+                    <ChatMessage
+                      key={i}
+                      msg={msg}
+                      modelName={selectedModel?.modelName || 'Agent'}
+                      isLocal={selectedModel?.providerName?.toLowerCase() === 'ollama' || selectedModel?.providerName?.toLowerCase() === 'lmstudio' || selectedModel?.providerName?.toLowerCase() === 'llamacpp'}
+                    />
                   ))}
                   {isStreaming && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 0', opacity: 0.45 }}>
@@ -1221,8 +1285,21 @@ export const AgentsWindow = () => {
           )}
         </div>
 
+        {isRightSidebarVisible && (
+          <div
+            onMouseDown={handleRightMouseDown}
+            style={{
+              width: 3, cursor: 'col-resize', flexShrink: 0,
+              marginLeft: -1, marginRight: -2, zIndex: 10,
+              background: 'transparent', transition: 'background 0.15s'
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = 'var(--vscode-focusBorder)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          />
+        )}
+
         {/* ═══ RIGHT SIDEBAR ═══════════════════════════════════════════ */}
-        {isRightSidebarVisible && <div style={{ width: 240, flexShrink: 0, display: 'flex', flexDirection: 'column', borderLeft: `1px solid ${B}`, ...sb }}>
+        {isRightSidebarVisible && <div style={{ width: rightSidebarWidth, flexShrink: 0, display: 'flex', flexDirection: 'column', borderLeft: `1px solid ${B}`, ...sb }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 35, padding: '0 8px', borderBottom: `1px solid ${B}` }}>
             <div style={{ display: 'flex' }}>
               {(['Changes', 'Files'] as const).map(t => {
