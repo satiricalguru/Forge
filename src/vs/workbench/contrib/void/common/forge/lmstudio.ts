@@ -17,7 +17,7 @@ export class LMStudioProvider extends BaseHttpProvider {
 
 	protected override async _probeModels(token: CancellationToken) {
 		const ep = this.endpoint();
-		const res = await localFetch(`${ep}/v1/models`, { signal: tokenToSignal(token), timeoutMs: 2_000 });
+		const res = await localFetch(`${ep}/v1/models`, { token, timeoutMs: 2_000 });
 		const json: { data?: { id: string }[] } = await res.json();
 		return (json.data ?? []).map(m => ({ id: m.id, raw: m }));
 	}
@@ -29,6 +29,7 @@ export class LMStudioProvider extends BaseHttpProvider {
 			messages: req.messages,
 			stream: true,
 		};
+		console.log('=== LM STUDIO CHAT REQUEST MESSAGES ===', JSON.stringify(req.messages, null, 2));
 		if (req.tools) body.tools = req.tools;
 
 		const handle = await streamSSE(
@@ -67,12 +68,4 @@ export class LMStudioProvider extends BaseHttpProvider {
 		});
 		return { cancel: handle.cancel, finished: handle.finished };
 	}
-}
-
-
-function tokenToSignal(token: CancellationToken): AbortSignal {
-	const controller = new AbortController();
-	if (token.isCancellationRequested) controller.abort();
-	token.onCancellationRequested(() => controller.abort());
-	return controller.signal;
 }

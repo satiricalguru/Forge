@@ -56,7 +56,7 @@ export class OpenAICompatibleProvider extends BaseHttpProvider {
 	protected override async _probeModels(token: CancellationToken) {
 		const ep = this.endpoint();
 		const url = this._url(ep, this.healthPath);
-		const res = await localFetch(url, { signal: tokenToSignal(token), timeoutMs: 2_000 });
+		const res = await localFetch(url, { token, timeoutMs: 2_000 });
 		const json: { data?: { id: string }[] } = await res.json();
 		return (json.data ?? []).map(m => ({ id: m.id, raw: m }));
 	}
@@ -114,7 +114,6 @@ export const vLLMProvider = new OpenAICompatibleProvider({
 	fimPath: null,
 });
 
-
 export const LlamaCppProvider = new OpenAICompatibleProvider({
 	id: 'llamacpp',
 	displayName: 'llama.cpp',
@@ -133,11 +132,3 @@ export const LocalAIProvider = new OpenAICompatibleProvider({
 	chatPath: '/v1/chat/completions',
 	fimPath: '/v1/completions',
 });
-
-
-function tokenToSignal(token: CancellationToken): AbortSignal {
-	const controller = new AbortController();
-	if (token.isCancellationRequested) controller.abort();
-	token.onCancellationRequested(() => controller.abort());
-	return controller.signal;
-}

@@ -3,6 +3,8 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+import { CancellationToken } from '../../../../../base/common/cancellation.js';
+
 
 export class HttpError extends Error {
 	constructor(public readonly status: number, message: string) {
@@ -17,13 +19,19 @@ export class HttpError extends Error {
  * Always pinned to localhost/LAN — refuses to send to public IPs (defence in depth
  * for the local-first mission).
  */
-export async function localFetch(url: string, init?: RequestInit & { timeoutMs?: number }): Promise<Response> {
-	const { timeoutMs, ...rest } = init ?? {};
+export async function localFetch(url: string, init?: RequestInit & { timeoutMs?: number; token?: CancellationToken }): Promise<Response> {
+	const { timeoutMs, token, signal: upstreamSignal, ...rest } = init ?? {};
 	// hard guard: refuse http(s) urls that resolve to anything other than loopback / private / link-local.
 	// We can't do DNS here, but we can validate the hostname string.
 	assertLocalUrl(url);
 
 	const controller = new AbortController();
+	const abort = () => controller.abort();
+	const cancellationListener = token?.onCancellationRequested(abort);
+	if (token?.isCancellationRequested || upstreamSignal?.aborted) {
+		abort();
+	}
+	upstreamSignal?.addEventListener('abort', abort, { once: true });
 	const timer = timeoutMs ? setTimeout(() => controller.abort(), timeoutMs) : null;
 	try {
 		const res = await fetch(url, { ...rest, signal: controller.signal });
@@ -33,11 +41,13 @@ export async function localFetch(url: string, init?: RequestInit & { timeoutMs?:
 		return res;
 	} finally {
 		if (timer) clearTimeout(timer);
+		cancellationListener?.dispose();
+		upstreamSignal?.removeEventListener('abort', abort);
 	}
 }
 
 
-function assertLocalUrl(url: string) {
+export function assertLocalUrl(url: string) {
 	let parsed: URL;
 	try {
 		parsed = new URL(url);

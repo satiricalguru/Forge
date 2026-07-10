@@ -129,3 +129,6 @@
 	user-select: none;
 	-webkit-user-select: none;
 }
+@keyframes void-agents-spin {
+	to { transform: rotate(360deg); }
+}

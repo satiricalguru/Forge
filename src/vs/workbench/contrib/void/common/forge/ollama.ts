@@ -36,7 +36,7 @@ export class OllamaProvider extends BaseHttpProvider {
 
 	protected override async _probeModels(token: CancellationToken) {
 		const ep = this.endpoint();
-		const res = await localFetch(`${ep}/api/tags`, { signal: tokenToSignal(token), timeoutMs: 2_000 });
+		const res = await localFetch(`${ep}/api/tags`, { token, timeoutMs: 2_000 });
 		const json: { models?: { name: string }[] } = await res.json();
 		return (json.models ?? []).map(m => ({ id: m.name, raw: m }));
 	}
@@ -79,14 +79,6 @@ export class OllamaProvider extends BaseHttpProvider {
 		});
 		return { cancel: handle.cancel, finished: handle.finished };
 	}
-}
-
-
-function tokenToSignal(token: CancellationToken): AbortSignal {
-	const controller = new AbortController();
-	if (token.isCancellationRequested) controller.abort();
-	token.onCancellationRequested(() => controller.abort());
-	return controller.signal;
 }
 
 
