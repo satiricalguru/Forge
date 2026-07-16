@@ -13,6 +13,7 @@ import { VOID_OPEN_SETTINGS_ACTION_ID, VOID_TOGGLE_SETTINGS_ACTION_ID } from '..
 import { modelFilterOfFeatureName, ModelOption } from '../../../../../../../workbench/contrib/void/common/voidSettingsService.js'
 import { WarningBox } from './WarningBox.js'
 import ErrorBoundary from '../sidebar-tsx/ErrorBoundary.js'
+import { ModelCapabilitiesModal } from './ModelCapabilitiesModal.js'
 
 const optionsEqual = (m1: ModelOption[], m2: ModelOption[]) => {
 	if (m1.length !== m2.length) return false
@@ -50,6 +51,7 @@ const ModelSelectBox = ({ options, featureName, className }: { options: ModelOpt
 	const hardwareService = accessor.get('IHardwareService')
 
 	const [hardwareInfo, setHardwareInfo] = useState<any>(null)
+	const [isModalOpen, setIsModalOpen] = useState(false)
 
 	useEffect(() => {
 		hardwareService.getHardwareInfo().then(info => {
@@ -78,23 +80,43 @@ const ModelSelectBox = ({ options, featureName, className }: { options: ModelOpt
 		}
 	}, [hardwareInfo]);
 
-	return <VoidCustomDropdownBox
-		options={options}
-		selectedOption={selectedOption}
-		onChangeOption={onChangeOption}
-		getOptionDisplayName={(option) => {
-			const fit = getModelFitStatus(option.selection.modelName);
-			return `${option.selection.modelName}${fit ? ` (${fit})` : ''}`;
-		}}
-		getOptionDropdownName={(option) => option.selection.modelName}
-		getOptionDropdownDetail={(option) => {
-			const fit = getModelFitStatus(option.selection.modelName);
-			return `${option.selection.providerName}${fit ? ` (${fit})` : ''}`;
-		}}
-		getOptionsEqual={(a, b) => optionsEqual([a], [b])}
-		className={className}
-		matchInputWidth={false}
-	/>
+	return (
+		<>
+			<VoidCustomDropdownBox
+				options={options}
+				selectedOption={selectedOption}
+				onChangeOption={onChangeOption}
+				getOptionDisplayName={(option) => {
+					const fit = getModelFitStatus(option.selection.modelName);
+					return `${option.selection.modelName}${fit ? ` (${fit})` : ''}`;
+				}}
+				getOptionDropdownName={(option) => option.selection.modelName}
+				getOptionDropdownDetail={(option) => {
+					const fit = getModelFitStatus(option.selection.modelName);
+					return `${option.selection.providerName}${fit ? ` (${fit})` : ''}`;
+				}}
+				getOptionsEqual={(a, b) => optionsEqual([a], [b])}
+				className={className}
+				matchInputWidth={false}
+				bottomNode={(closeFn) => (
+					<div
+						className={`flex items-center px-2 py-1.5 pr-4 cursor-pointer whitespace-nowrap transition-all duration-100 hover:bg-void-bg-2 border-t border-void-border-2 mt-1`}
+						onClick={(e) => {
+							e.stopPropagation();
+							closeFn();
+							setIsModalOpen(true);
+						}}
+					>
+						<div className="w-4 flex justify-center flex-shrink-0" />
+						<span className="flex justify-between items-center w-full gap-x-1 text-void-fg-3">
+							<span>More Settings...</span>
+						</span>
+					</div>
+				)}
+			/>
+			{isModalOpen && <ModelCapabilitiesModal onClose={() => setIsModalOpen(false)} />}
+		</>
+	)
 }
 
 

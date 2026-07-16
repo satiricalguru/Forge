@@ -286,9 +286,9 @@ export const forgeList = (params: ListParams): void => {
 	provider.listModels(CancellationToken.None)
 		.then(({ models }) => {
 			if (providerName === 'ollama') {
-				onSuccess({ models: models.map(m => ({ name: m.id } as OllamaModelResponse)) });
+				onSuccess({ models: models.map(m => ({ name: m.id, ...(m.raw as any) } as OllamaModelResponse)) });
 			} else {
-				onSuccess({ models: models.map(m => ({ id: m.id })) });
+				onSuccess({ models: models.map(m => ({ id: m.id, ...(m.raw as any) })) });
 			}
 		})
 		.catch(error => onError({ error: error + '' }));

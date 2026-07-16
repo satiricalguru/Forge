@@ -5,7 +5,7 @@
 
 import { CancellationToken } from '../../../../../base/common/cancellation.js';
 import { BaseHttpProvider } from './baseProvider.js';
-import { ChatRequest, ChatStreamHandle, FIMRequest, StreamChunk } from '../forgeProviderTypes.js';
+import { ChatRequest, ChatStreamHandle, FIMRequest, ModelCapabilities, StreamChunk } from '../forgeProviderTypes.js';
 import { localFetch, streamSSE } from './httpUtil.js';
 
 
@@ -15,11 +15,50 @@ export class LMStudioProvider extends BaseHttpProvider {
 	readonly displayName = 'LM Studio';
 	readonly defaultEndpoint = 'http://localhost:1234';
 
+	private static _probedModelsMap = new Map<string, any>();
+
+	override capabilitiesFor(modelId: string): ModelCapabilities {
+		const cacheKey = `${this.endpoint()}::${modelId}`;
+		const cached = LMStudioProvider._probedModelsMap.get(cacheKey);
+		if (cached) {
+			const supportsTools = cached.capabilities?.includes('tool_use') ?? false;
+			const isVision = cached.type === 'vlm' || modelId.toLowerCase().includes('vision');
+			const supportsReasoning = modelId.toLowerCase().includes('r1') || modelId.toLowerCase().includes('reasoning');
+			const contextLength = cached.loaded_context_length ?? cached.max_context_length ?? 4096;
+
+			return {
+				supportsTools,
+				supportsFIM: false,
+				supportsReasoning,
+				supportsVision: isVision,
+				supportsSystemMessage: true,
+				contextWindow: contextLength,
+				reservedOutputTokens: 4096
+			};
+		}
+		return super.capabilitiesFor(modelId);
+	}
+
 	protected override async _probeModels(token: CancellationToken) {
 		const ep = this.endpoint();
-		const res = await localFetch(`${ep}/v1/models`, { token, timeoutMs: 2_000 });
-		const json: { data?: { id: string }[] } = await res.json();
-		return (json.data ?? []).map(m => ({ id: m.id, raw: m }));
+		try {
+			const res = await localFetch(`${ep}/api/v0/models`, { token, timeoutMs: 2_000 });
+			const json: { data?: any[] } = await res.json();
+			const data = json.data ?? [];
+			for (const m of data) {
+				LMStudioProvider._probedModelsMap.set(`${ep}::${m.id}`, m);
+			}
+			return data.map(m => ({ id: m.id, raw: m }));
+		} catch (e) {
+			// Fallback to /v1/models if /api/v0/models fails
+			try {
+				const res = await localFetch(`${ep}/v1/models`, { token, timeoutMs: 2_000 });
+				const json: { data?: { id: string }[] } = await res.json();
+				return (json.data ?? []).map(m => ({ id: m.id, raw: m }));
+			} catch (fallbackErr) {
+				return [];
+			}
+		}
 	}
 
 	override async streamChat(req: ChatRequest, onChunk: (c: StreamChunk) => void): Promise<ChatStreamHandle> {

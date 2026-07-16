@@ -1264,6 +1264,7 @@ export const VoidCustomDropdownBox = <T extends NonNullable<any>>({
 	matchInputWidth = false,
 	gapPx = 0,
 	offsetPx = -6,
+	bottomNode,
 }: {
 	options: T[];
 	selectedOption: T | undefined;
@@ -1277,6 +1278,7 @@ export const VoidCustomDropdownBox = <T extends NonNullable<any>>({
 	matchInputWidth?: boolean;
 	gapPx?: number;
 	offsetPx?: number;
+	bottomNode?: React.ReactNode | ((close: () => void) => React.ReactNode);
 }) => {
 	const [isOpen, setIsOpen] = useState(false);
 	const measureRef = useRef<HTMLDivElement>(null);
@@ -1468,6 +1470,7 @@ export const VoidCustomDropdownBox = <T extends NonNullable<any>>({
 								</div>
 							);
 						})}
+						{typeof bottomNode === 'function' ? bottomNode(() => setIsOpen(false)) : bottomNode}
 					</div>
 
 				</div>

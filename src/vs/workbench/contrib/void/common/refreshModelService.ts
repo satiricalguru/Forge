@@ -18,15 +18,19 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 type RefreshableState = ({
 	state: 'init',
 	timeoutId: null,
+	models: null,
 } | {
 	state: 'refreshing',
 	timeoutId: NodeJS.Timeout | null, // the timeoutId of the most recent call to refreshModels
+	models: (OllamaModelResponse | OpenaiCompatibleModelResponse)[] | null,
 } | {
 	state: 'finished',
 	timeoutId: null,
+	models: (OllamaModelResponse | OpenaiCompatibleModelResponse)[] | null,
 } | {
 	state: 'error',
 	timeoutId: null,
+	models: (OllamaModelResponse | OpenaiCompatibleModelResponse)[] | null,
 })
 
 
@@ -141,9 +145,9 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 	}
 
 	state: RefreshModelStateOfProvider = {
-		ollama: { state: 'init', timeoutId: null },
-		vLLM: { state: 'init', timeoutId: null },
-		lmStudio: { state: 'init', timeoutId: null },
+		ollama: { state: 'init', timeoutId: null, models: null },
+		vLLM: { state: 'init', timeoutId: null, models: null },
+		lmStudio: { state: 'init', timeoutId: null, models: null },
 	}
 
 
@@ -152,7 +156,7 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 
 		this._clearProviderTimeout(providerName)
 
-		this._setRefreshState(providerName, 'refreshing', options)
+		this._setRefreshState(providerName, 'refreshing', null, options)
 
 		const autoPoll = () => {
 			if (this.voidSettingsService.state.globalSettings.autoRefreshModels) {
@@ -181,11 +185,11 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 
 				if (options.enableProviderOnSuccess) this.voidSettingsService.setSettingOfProvider(providerName, '_didFillInProviderSettings', true)
 
-				this._setRefreshState(providerName, 'finished', options)
+				this._setRefreshState(providerName, 'finished', models, options)
 				autoPoll()
 			},
 			onError: ({ error }) => {
-				this._setRefreshState(providerName, 'error', options)
+				this._setRefreshState(providerName, 'error', null, options)
 				autoPoll()
 			}
 		})
@@ -211,9 +215,10 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 		this.state[providerName].timeoutId = timeoutId
 	}
 
-	private _setRefreshState(providerName: RefreshableProviderName, state: RefreshableState['state'], options?: { doNotFire: boolean }) {
+	private _setRefreshState(providerName: RefreshableProviderName, state: RefreshableState['state'], models: (OllamaModelResponse | OpenaiCompatibleModelResponse)[] | null = null, options?: { doNotFire: boolean }) {
 		if (options?.doNotFire) return
 		this.state[providerName].state = state
+		if (models) this.state[providerName].models = models
 		this._onDidChangeState.fire(providerName)
 	}
 }

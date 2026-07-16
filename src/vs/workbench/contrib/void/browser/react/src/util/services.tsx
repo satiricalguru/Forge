@@ -212,8 +212,8 @@ const getReactAccessor = (accessor: ServicesAccessor) => {
 	// safeGet swallows "service not registered" errors so the agents window can boot
 	// in contexts (e.g. the standalone agents BrowserWindow) that skip initLayout and
 	// WorkbenchContributions.start, meaning editor-specific services may not be available.
-	const safeGet = <T,>(id: any): T | null => {
-		try { return accessor.get<T>(id); } catch { return null; }
+	const safeGet = <T,>(id: import('../../../../../../../platform/instantiation/common/instantiation.js').ServiceIdentifier<T>): T => {
+		try { return accessor.get<T>(id); } catch { return null as any; }
 	};
 
 	const reactAccessor = {

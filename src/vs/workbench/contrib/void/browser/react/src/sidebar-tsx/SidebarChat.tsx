@@ -3036,19 +3036,7 @@ export const SidebarChat = () => {
 		</ProseWrapper> : null}
 
 
-		{/* error message */}
-		{latestError === undefined ? null :
-			<div className='px-2 my-1'>
-				<ErrorDisplay
-					message={latestError.message}
-					fullError={latestError.fullError}
-					onDismiss={() => { chatThreadsService.dismissStreamError(currentThread.id) }}
-					showDismiss={true}
-				/>
-
-				<WarningBox className='text-sm my-2 mx-4' onClick={() => { commandService.executeCommand(VOID_OPEN_SETTINGS_ACTION_ID) }} text='Open settings' />
-			</div>
-		}
+		{/* error message has been moved to be injected inside chat thread history */}
 	</ScrollToBottomContainer>
 
 

@@ -30,15 +30,41 @@ export class OllamaProvider extends BaseHttpProvider {
 	readonly displayName = 'Ollama';
 	readonly defaultEndpoint = 'http://127.0.0.1:11434';
 
+	private static _probedModelsMap = new Map<string, any>();
+
 	override capabilitiesFor(modelId: string): ModelCapabilities {
+		const cacheKey = `${this.endpoint()}::${modelId}`;
+		const cached = OllamaProvider._probedModelsMap.get(cacheKey);
+		if (cached) {
+			const details = cached.details;
+			const caps = cached.capabilities || [];
+			const supportsTools = caps.includes('tools');
+			const families = details?.families || [];
+			const isVision = caps.includes('vision') || families.includes('mllm') || families.includes('clip') || modelId.toLowerCase().includes('vision');
+			const supportsReasoning = caps.includes('thinking') || modelId.toLowerCase().includes('r1');
+			
+			return {
+				supportsTools,
+				supportsFIM: OLLAMA_CAPABILITIES[modelId]?.supportsFIM ?? false,
+				supportsReasoning,
+				supportsVision: isVision,
+				supportsSystemMessage: true,
+				contextWindow: details?.context_length ?? 4096,
+				reservedOutputTokens: 4096
+			};
+		}
 		return OLLAMA_CAPABILITIES[modelId] ?? super.capabilitiesFor(modelId);
 	}
 
 	protected override async _probeModels(token: CancellationToken) {
 		const ep = this.endpoint();
 		const res = await localFetch(`${ep}/api/tags`, { token, timeoutMs: 2_000 });
-		const json: { models?: { name: string }[] } = await res.json();
-		return (json.models ?? []).map(m => ({ id: m.name, raw: m }));
+		const json: { models?: any[] } = await res.json();
+		const models = json.models ?? [];
+		for (const m of models) {
+			OllamaProvider._probedModelsMap.set(`${ep}::${m.name}`, m);
+		}
+		return models.map(m => ({ id: m.name, raw: m }));
 	}
 
 	override async streamChat(req: ChatRequest, onChunk: (c: StreamChunk) => void): Promise<ChatStreamHandle> {

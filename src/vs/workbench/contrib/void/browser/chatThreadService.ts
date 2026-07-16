@@ -45,7 +45,7 @@ import { IPathService } from '../../../services/path/common/pathService.js';
 import { VSBuffer } from '../../../../base/common/buffer.js';
 import { joinPath } from '../../../../base/common/resources.js';
 import { ISessionRegistryService } from '../common/sessionRegistryTypes.js';
-import { INativeWorkbenchEnvironmentService } from '../../../services/environment/electron-sandbox/environmentService.js';
+import { IWorkbenchEnvironmentService } from '../../../services/environment/common/environmentService.js';
 
 
 // related to retrying when LLM message has error
@@ -343,7 +343,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		@ILocalProviderRegistryService private readonly _forgeProviderService: ILocalProviderRegistryService,
 		@IPathService private readonly _pathService: IPathService,
 		@ISessionRegistryService private readonly _sessionRegistryService: ISessionRegistryService,
-		@INativeWorkbenchEnvironmentService private readonly _environmentService: INativeWorkbenchEnvironmentService,
+		@IWorkbenchEnvironmentService private readonly _environmentService: IWorkbenchEnvironmentService,
 	) {
 		super()
 		this.state = { allThreads: {}, currentThreadId: null as unknown as string } // default state
@@ -546,7 +546,7 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 				return;
 			}
 
-			const isAgentsWindow = this._environmentService.window?.isAgentsWindow;
+			const isAgentsWindow = (this._environmentService as any).window?.isAgentsWindow;
 
 			const loadedThreads: ChatThreads = { ...this.state.allThreads };
 			let changed = false;
@@ -1084,7 +1084,9 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 				// mark as streaming
 				if (!llmCancelToken) {
-					this._setStreamState(threadId, { isRunning: undefined, error: { message: 'There was an unexpected error when sending your chat message.', fullError: null } })
+					this._addMessageToThread(threadId, { role: 'assistant', displayContent: `⚠️ **Forge Error**: There was an unexpected error when sending your chat message.`, reasoning: '', anthropicReasoning: null })
+					this._setStreamState(threadId, { isRunning: undefined, error: undefined })
+					this._addUserCheckpoint({ threadId })
 					break
 				}
 
@@ -1120,10 +1122,16 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 					else {
 						const { error } = llmRes
 						const { displayContentSoFar, reasoningSoFar, toolCallSoFar } = this.streamState[threadId].llmInfo
-						this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar, reasoning: reasoningSoFar, anthropicReasoning: null })
+						
+						let formattedError = error ? `⚠️ **Forge Error**: ${error.message}${error.fullError ? `\n\n**Reason**: ${error.fullError.message || JSON.stringify(error.fullError)}` : ''}` : ''
+						if (formattedError && displayContentSoFar) {
+							formattedError = `\n\n` + formattedError
+						}
+						this._addMessageToThread(threadId, { role: 'assistant', displayContent: displayContentSoFar + formattedError, reasoning: reasoningSoFar, anthropicReasoning: null })
+						
 						if (toolCallSoFar) this._addMessageToThread(threadId, { role: 'interrupted_streaming_tool', name: toolCallSoFar.name, mcpServerName: this._computeMCPServerOfToolName(toolCallSoFar.name) })
 
-						this._setStreamState(threadId, { isRunning: undefined, error })
+						this._setStreamState(threadId, { isRunning: undefined, error: undefined })
 						this._addUserCheckpoint({ threadId })
 						return
 					}
