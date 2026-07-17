@@ -69,7 +69,10 @@ export const ModelCapabilitiesModal = ({ onClose }: { onClose: () => void }) => 
 										const rawModel = refreshStateModels?.find((m: any) => (m.name || m.id) === model.modelName) as any;
 										
 										const capabilities = getModelCapabilities(providerName, model.modelName, undefined);
-										const realtimeContext = providerName === 'ollama' ? rawModel?.details?.context_length : (rawModel?.context_length ?? rawModel?.context_window);
+										// Ollama: details.context_length | LM Studio: loaded_context_length > max_context_length | vLLM/generic: context_length / context_window
+									const realtimeContext = providerName === 'ollama'
+										? rawModel?.details?.context_length
+										: (rawModel?.loaded_context_length ?? rawModel?.max_context_length ?? rawModel?.context_length ?? rawModel?.context_window);
 										const contextWindow = realtimeContext ?? capabilities?.contextWindow;
 										const contextSize = contextWindow ? `${Math.round(contextWindow / 1000)}K` : 'Unknown';
 										

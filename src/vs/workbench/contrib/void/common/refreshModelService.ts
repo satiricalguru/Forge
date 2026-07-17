@@ -216,10 +216,17 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 	}
 
 	private _setRefreshState(providerName: RefreshableProviderName, state: RefreshableState['state'], models: (OllamaModelResponse | OpenaiCompatibleModelResponse)[] | null = null, options?: { doNotFire: boolean }) {
-		if (options?.doNotFire) return
-		this.state[providerName].state = state
-		if (models) this.state[providerName].models = models
-		this._onDidChangeState.fire(providerName)
+		// Create new object references so React state detects the change
+		this.state = {
+			...this.state,
+			[providerName]: {
+				...this.state[providerName],
+				state,
+				...(models ? { models } : {})
+			}
+		};
+		
+		if (!options?.doNotFire) this._onDidChangeState.fire(providerName)
 	}
 }
 
