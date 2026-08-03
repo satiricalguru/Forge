@@ -1709,8 +1709,13 @@ export const BlockCode = ({ initValue, language, maxHeight, showScrollbars }: Bl
 			}, [modelService])}
 
 			dispose={useCallback((editor: CodeEditorWidget) => {
+				if (modelRef.current) {
+					modelRef.current.dispose();
+					modelRef.current = null;
+				}
+				delete modelOfEditorId[id];
 				editor.dispose();
-			}, [modelService])}
+			}, [id])}
 
 			propsFn={useCallback(() => { return [] }, [])}
 		/>

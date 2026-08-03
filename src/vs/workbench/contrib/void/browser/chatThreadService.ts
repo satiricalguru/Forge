@@ -416,13 +416,22 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 	// !!! this is important for properly restoring URIs from storage
 	// should probably re-use code from void/src/vs/base/common/marshalling.ts instead. but this is simple enough
-	private _convertThreadDataFromStorage(threadsStr: string): ChatThreads {
-		return JSON.parse(threadsStr, (key, value) => {
-			if (value && typeof value === 'object' && value.$mid === 1) { // $mid is the MarshalledId. $mid === 1 means it is a URI
-				return URI.from(value); // TODO URI.revive instead of this?
-			}
-			return value;
-		});
+	private _convertThreadDataFromStorage(threadsStr: string): ChatThreads | null {
+		try {
+			return JSON.parse(threadsStr, (key, value) => {
+				if (value && typeof value === 'object' && value.$mid === 1) { // $mid is the MarshalledId. $mid === 1 means it is a URI
+					try {
+						return URI.from(value);
+					} catch {
+						return value;
+					}
+				}
+				return value;
+			});
+		} catch (e) {
+			console.error('Failed to parse thread data from storage:', e);
+			return null;
+		}
 	}
 
 	private _readAllThreads(): ChatThreads | null {
@@ -1121,7 +1130,10 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 					// error, but too many attempts
 					else {
 						const { error } = llmRes
-						const { displayContentSoFar, reasoningSoFar, toolCallSoFar } = this.streamState[threadId].llmInfo
+						const llmInfo = this.streamState[threadId]?.llmInfo
+						const displayContentSoFar = llmInfo?.displayContentSoFar ?? ''
+						const reasoningSoFar = llmInfo?.reasoningSoFar ?? null
+						const toolCallSoFar = llmInfo?.toolCallSoFar
 						
 						let formattedError = error ? `⚠️ **Forge Error**: ${error.message}${error.fullError ? `\n\n**Reason**: ${error.fullError.message || JSON.stringify(error.fullError)}` : ''}` : ''
 						if (formattedError && displayContentSoFar) {
@@ -1485,7 +1497,6 @@ We only need to do it for files that were edited since `from`, ie files between 
 			if (threadId !== this.state.currentThreadId) notify({ error: null })
 		}).catch((e) => {
 			if (threadId !== this.state.currentThreadId) notify({ error: getErrorMessage(e) })
-			throw e
 		})
 	}
 
@@ -1572,14 +1583,16 @@ We only need to do it for files that were edited since `from`, ie files between 
 
 		// clear messages up to the index
 		const slicedMessages = thread.messages.slice(0, messageIdx)
-		this._setState({
-			allThreads: {
-				...this.state.allThreads,
-				[thread.id]: {
-					...thread,
-					messages: slicedMessages
-				}
+		const newThreads = {
+			...this.state.allThreads,
+			[thread.id]: {
+				...thread,
+				messages: slicedMessages
 			}
+		}
+		this._storeAllThreads(newThreads)
+		this._setState({
+			allThreads: newThreads
 		})
 
 		// re-add the message and stream it
@@ -1595,9 +1608,10 @@ We only need to do it for files that were edited since `from`, ie files between 
 		const fsPathsSet = new Set<string>()
 		const uris: URI[] = []
 		const addURI = (uri: URI) => {
-			if (!fsPathsSet.has(uri.fsPath)) uris.push(uri)
-			fsPathsSet.add(uri.fsPath)
-			uris.push(uri)
+			if (!fsPathsSet.has(uri.fsPath)) {
+				fsPathsSet.add(uri.fsPath)
+				uris.push(uri)
+			}
 		}
 
 		for (const m of thread.messages) {
@@ -1704,9 +1718,9 @@ We only need to do it for files that were edited since `from`, ie files between 
 				if (doesUriMatchTarget(uri)) {
 
 					// TODO make this logic more general
-					const prevUriStrs = prevUris.map(uri => uri.fsPath)
-					const shortenedUriStrs = shorten(prevUriStrs)
-					let displayText = shortenedUriStrs[idx]
+					const searchUriStrs = uris.map(u => u.fsPath)
+					const shortenedUriStrs = shorten(searchUriStrs)
+					let displayText = shortenedUriStrs[idx] ?? uri.fsPath
 					const ellipsisIdx = displayText.lastIndexOf('…/');
 					if (ellipsisIdx >= 0) {
 						displayText = displayText.slice(ellipsisIdx + 2)

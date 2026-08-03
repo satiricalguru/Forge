@@ -125,23 +125,13 @@ export const IconLoading = ({ className = '' }: { className?: string }) => {
 	const [loadingText, setLoadingText] = useState('.');
 
 	useEffect(() => {
-		let intervalId;
-
-		// Function to handle the animation
 		const toggleLoadingText = () => {
-			if (loadingText === '...') {
-				setLoadingText('.');
-			} else {
-				setLoadingText(loadingText + '.');
-			}
+			setLoadingText(prev => prev === '...' ? '.' : prev + '.');
 		};
 
-		// Start the animation loop
-		intervalId = setInterval(toggleLoadingText, 300);
-
-		// Cleanup function to clear the interval when component unmounts
+		const intervalId = setInterval(toggleLoadingText, 300);
 		return () => clearInterval(intervalId);
-	}, [loadingText, setLoadingText]);
+	}, []);
 
 	return <div className={`${className}`}>{loadingText}</div>;
 
@@ -905,7 +895,7 @@ const ToolHeaderWrapper = ({
 
 const EditTool = ({ toolMessage, threadId, messageIdx, content }: Parameters<ResultWrapper<'edit_file' | 'rewrite_file'>>[0] & { content: string }) => {
 	const accessor = useAccessor()
-	const isError = false
+	const isError = toolMessage.type === 'error'
 	const isRejected = toolMessage.type === 'rejected'
 
 	const title = getTitle(toolMessage)
@@ -1589,7 +1579,7 @@ const ToolRequestAcceptRejectButtons = ({ toolName }: { toolName: ToolName }) =>
 		try {
 			const threadId = chatThreadsService.state.currentThreadId
 			chatThreadsService.rejectLatestToolRequest(threadId)
-		} catch (e) { console.error('Error while approving message in chat:', e) }
+		} catch (e) { console.error('Error while rejecting message in chat:', e) }
 		metricsService.capture('Tool Request Rejected', {})
 	}, [chatThreadsService, metricsService])
 
@@ -1782,41 +1772,53 @@ const CommandTool = ({ toolMessage, type, threadId }: { threadId: string } & ({
 	const componentParams: ToolHeaderParams = { title, desc1, desc1Info, isError, icon, isRejected, }
 
 
-	const effect = async () => {
-		if (streamState?.isRunning !== 'tool') return
-		if (type !== 'run_command' || toolMessage.type !== 'running_now') return;
+	useEffect(() => {
+		let isCancelled = false;
+		let cleanup: (() => void) | undefined;
 
-		// wait for the interruptor so we know it's running
-
-		await streamState?.interrupt
-		const container = divRef.current;
-		if (!container) return;
-
-		const terminal = terminalToolsService.getTemporaryTerminal(toolMessage.params.terminalId);
-		if (!terminal) return;
-
-		try {
-			terminal.attachToElement(container);
-			terminal.setVisible(true)
-		} catch {
+		if (streamState?.isRunning !== 'tool' || type !== 'run_command' || toolMessage.type !== 'running_now') {
+			return;
 		}
 
-		// Listen for size changes of the container and keep the terminal layout in sync.
-		const resizeObserver = new ResizeObserver((entries) => {
-			const height = entries[0].borderBoxSize[0].blockSize;
-			const width = entries[0].borderBoxSize[0].inlineSize;
-			if (typeof terminal.layout === 'function') {
-				terminal.layout({ width, height });
+		const setupTerminal = async () => {
+			await streamState?.interrupt;
+			if (isCancelled) return;
+
+			const container = divRef.current;
+			if (!container) return;
+
+			const terminal = terminalToolsService.getTemporaryTerminal(toolMessage.params.terminalId);
+			if (!terminal) return;
+
+			try {
+				terminal.attachToElement(container);
+				terminal.setVisible(true);
+			} catch {
 			}
-		});
 
-		resizeObserver.observe(container);
-		return () => { terminal.detachFromElement(); resizeObserver?.disconnect(); }
-	}
+			const resizeObserver = new ResizeObserver((entries) => {
+				if (!entries[0]) return;
+				const height = entries[0].borderBoxSize[0]?.blockSize ?? 0;
+				const width = entries[0].borderBoxSize[0]?.inlineSize ?? 0;
+				if (typeof terminal.layout === 'function') {
+					terminal.layout({ width, height });
+				}
+			});
 
-	useEffect(() => {
-		effect()
-	}, [terminalToolsService, toolMessage, toolMessage.type, type]);
+			resizeObserver.observe(container);
+			cleanup = () => {
+				terminal.detachFromElement();
+				resizeObserver.disconnect();
+			};
+		};
+
+		setupTerminal();
+
+		return () => {
+			isCancelled = true;
+			if (cleanup) cleanup();
+		};
+	}, [terminalToolsService, toolMessage, toolMessage.type, type, streamState?.isRunning, streamState?.interrupt]);
 
 	if (toolMessage.type === 'success') {
 		const { result } = toolMessage

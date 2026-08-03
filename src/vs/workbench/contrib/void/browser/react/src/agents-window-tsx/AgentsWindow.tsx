@@ -766,7 +766,7 @@ export const AgentsWindow = () => {
     if (activeSession && isStreaming) void chatThreadsService.abortRunning(activeSession);
   };
 
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [activeThread?.messages?.length]);
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [activeThread?.id, activeThread?.messages?.length]);
 
   // ── Customization items ──────────────────────────────────────────────────
   const customizations: { icon: string; label: string; count: number }[] = [
@@ -1159,7 +1159,7 @@ export const AgentsWindow = () => {
                       color: 'var(--vscode-inputValidation-errorForeground, var(--vscode-foreground))'
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontWeight: 600 }}>
-                        <span className={ci('error')} style={{ fontSize: 16, color: 'var(--vscode-errorForeground, #f87171)' }} />
+                        <ForgeIcon name="error" size={16} style={{ color: 'var(--vscode-errorForeground, #f87171)' }} />
                         <span>LLM Server Error</span>
                       </div>
                       <div style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 10, opacity: 0.9 }}>

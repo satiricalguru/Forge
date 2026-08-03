@@ -3,7 +3,7 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
-import React, { JSX, useMemo, useState } from 'react'
+import React, { useState } from 'react'
 import { marked, MarkedToken, Token } from 'marked'
 
 import { convertToVscodeLang, detectLanguage } from '../../../../common/helpers/languageHelpers.js'
@@ -132,8 +132,13 @@ const CodespanWithLink = ({ text, rawText, chatMessageLocation }: { text: string
 			// if no link, generate link and add to cache
 			chatThreadService.generateCodespanLink({ codespanStr: text, threadId })
 				.then(link => {
-					chatThreadService.addCodespanLink({ newLinkText: text, newLinkLocation: link, messageIdx, threadId })
-					setDidComputeCodespanLink(true) // rerender
+					if (link) {
+						chatThreadService.addCodespanLink({ newLinkText: text, newLinkLocation: link, messageIdx, threadId })
+						setDidComputeCodespanLink(true) // rerender
+					}
+				})
+				.catch(err => {
+					console.error('Error generating codespan link:', err)
 				})
 		}
 
@@ -482,10 +487,17 @@ const RenderToken = ({ token, inPTag, codeURI, chatMessageLocation, tokenIdx, ..
 	}
 
 	if (t.type === 'link') {
+		const isSafe = t.href && (t.href.startsWith('http://') || t.href.startsWith('https://') || t.href.startsWith('vscode://') || t.href.startsWith('file://'));
 		return (
 			<a
-				onClick={() => { window.open(t.href) }}
-				href={t.href}
+				onClick={(e) => {
+					if (!isSafe) {
+						e.preventDefault();
+						return;
+					}
+					window.open(t.href, '_blank', 'noopener,noreferrer');
+				}}
+				href={isSafe ? t.href : '#'}
 				title={t.title ?? undefined}
 				className='underline cursor-pointer hover:brightness-90 transition-all duration-200 text-void-fg-2'
 			>
@@ -495,11 +507,12 @@ const RenderToken = ({ token, inPTag, codeURI, chatMessageLocation, tokenIdx, ..
 	}
 
 	if (t.type === 'image') {
+		const isSafe = t.href && (t.href.startsWith('http://') || t.href.startsWith('https://') || t.href.startsWith('data:image/'));
+		if (!isSafe) return null;
 		return <img
 			src={t.href}
 			alt={t.text}
 			title={t.title ?? undefined}
-
 		/>
 	}
 

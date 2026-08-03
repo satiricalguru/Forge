@@ -280,12 +280,19 @@ const ApplyButtonsForTerminal = ({
 		try {
 			setIsShellRunning(true)
 			const terminalId = await terminalToolService.createPersistentTerminal({ cwd: null })
-			const { interrupt } = await terminalToolService.runCommand(
+			const { interrupt, promise } = await terminalToolService.runCommand(
 				codeStr,
 				{ type: 'persistent', persistentTerminalId: terminalId }
 			);
 			interruptToolRef.current = interrupt
 			metricsService.capture('Execute Shell', { length: codeStr.length })
+			if (promise) {
+				promise.finally(() => {
+					setIsShellRunning(false)
+				})
+			} else {
+				setIsShellRunning(false)
+			}
 		} catch (e) {
 			setIsShellRunning(false)
 			console.error('Failed to execute in terminal:', e)
@@ -469,7 +476,7 @@ export const EditToolAcceptRejectButtonsHTML = ({
 	const chatThreadsStreamState = useChatThreadsStreamState(threadId)
 	const isRunning = chatThreadsStreamState?.isRunning
 
-	const isDisabled = !!isFeatureNameDisabled('Chat', settingsState) || !applyBoxId
+	const isDisabled = !!isFeatureNameDisabled('Apply', settingsState) || !applyBoxId
 
 	const onAccept = useCallback(() => {
 		editCodeService.acceptOrRejectAllDiffAreas({ uri, behavior: 'accept', removeCtrlKs: false })

@@ -25,7 +25,11 @@ export const useRefState = <T,>(initVal: T): ReturnType<T> => {
 export const usePromise = <T,>(promise: Promise<T>): T | undefined => {
 	const [val, setVal] = useState<T | undefined>(undefined)
 	useEffect(() => {
-		promise.then((v) => setVal(v))
+		let isMounted = true
+		promise
+			.then((v) => { if (isMounted) setVal(v) })
+			.catch((err) => { console.error('Error in usePromise:', err) })
+		return () => { isMounted = false }
 	}, [promise])
 	return val
 }
