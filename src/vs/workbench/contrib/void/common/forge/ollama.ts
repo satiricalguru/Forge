@@ -43,13 +43,30 @@ export class OllamaProvider extends BaseHttpProvider {
 			const isVision = caps.includes('vision') || families.includes('mllm') || families.includes('clip') || modelId.toLowerCase().includes('vision');
 			const supportsReasoning = caps.includes('thinking') || modelId.toLowerCase().includes('r1');
 			
+			let ctxLen = cached.context_length ?? details?.context_length;
+			if (!ctxLen && cached.model_info && typeof cached.model_info === 'object') {
+				for (const k of Object.keys(cached.model_info)) {
+					if (k.endsWith('.context_length') || k === 'context_length') {
+						const val = Number(cached.model_info[k]);
+						if (!isNaN(val) && val > 0) { ctxLen = val; break; }
+					}
+				}
+			}
+			if (!ctxLen && cached.parameters && typeof cached.parameters === 'string') {
+				const match = cached.parameters.match(/num_ctx\s+(\d+)/);
+				if (match) {
+					const val = parseInt(match[1], 10);
+					if (!isNaN(val) && val > 0) ctxLen = val;
+				}
+			}
+
 			return {
 				supportsTools,
 				supportsFIM: OLLAMA_CAPABILITIES[modelId]?.supportsFIM ?? false,
 				supportsReasoning,
 				supportsVision: isVision,
 				supportsSystemMessage: true,
-				contextWindow: details?.context_length ?? 4096,
+				contextWindow: ctxLen ?? OLLAMA_CAPABILITIES[modelId]?.contextWindow ?? 4096,
 				reservedOutputTokens: 4096
 			};
 		}
@@ -61,10 +78,46 @@ export class OllamaProvider extends BaseHttpProvider {
 		const res = await localFetch(`${ep}/api/tags`, { token, timeoutMs: 2_000 });
 		const json: { models?: any[] } = await res.json();
 		const models = json.models ?? [];
-		for (const m of models) {
-			OllamaProvider._probedModelsMap.set(`${ep}::${m.name}`, m);
-		}
-		return models.map(m => ({ id: m.name, raw: m }));
+		const detailedModels = await Promise.all(models.map(async (m) => {
+			try {
+				const showRes = await localFetch(`${ep}/api/show`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ name: m.name }),
+					token,
+					timeoutMs: 1_500
+				});
+				const showJson = await showRes.json();
+				let ctxLen: number | undefined;
+				if (showJson.model_info && typeof showJson.model_info === 'object') {
+					for (const k of Object.keys(showJson.model_info)) {
+						if (k.endsWith('.context_length') || k === 'context_length') {
+							const val = Number(showJson.model_info[k]);
+							if (!isNaN(val) && val > 0) { ctxLen = val; break; }
+						}
+					}
+				}
+				if (!ctxLen && showJson.parameters) {
+					const match = String(showJson.parameters).match(/num_ctx\s+(\d+)/);
+					if (match) {
+						const val = parseInt(match[1], 10);
+						if (!isNaN(val) && val > 0) ctxLen = val;
+					}
+				}
+				const mergedRaw = {
+					...m,
+					...showJson,
+					details: { ...m.details, ...showJson.details, ...(ctxLen ? { context_length: ctxLen } : {}) },
+					context_length: ctxLen
+				};
+				OllamaProvider._probedModelsMap.set(`${ep}::${m.name}`, mergedRaw);
+				return { id: m.name, raw: mergedRaw };
+			} catch {
+				OllamaProvider._probedModelsMap.set(`${ep}::${m.name}`, m);
+				return { id: m.name, raw: m };
+			}
+		}));
+		return detailedModels;
 	}
 
 	override async streamChat(req: ChatRequest, onChunk: (c: StreamChunk) => void): Promise<ChatStreamHandle> {

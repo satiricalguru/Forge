@@ -69,7 +69,7 @@ function eq<T>(a: T[], b: T[]): boolean {
 export interface IRefreshModelService {
 	readonly _serviceBrand: undefined;
 	startRefreshingModels: (providerName: RefreshableProviderName, options: { enableProviderOnSuccess: boolean, doNotFire: boolean }) => void;
-	onDidChangeState: Event<RefreshableProviderName>;
+	onDidChangeState: Event<{ providerName: RefreshableProviderName, options?: { doNotFire?: boolean } }>;
 	state: RefreshModelStateOfProvider;
 }
 
@@ -79,8 +79,8 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 
 	readonly _serviceBrand: undefined;
 
-	private readonly _onDidChangeState = new Emitter<RefreshableProviderName>();
-	readonly onDidChangeState: Event<RefreshableProviderName> = this._onDidChangeState.event; // this is primarily for use in react, so react can listen + update on state changes
+	private readonly _onDidChangeState = new Emitter<{ providerName: RefreshableProviderName, options?: { doNotFire?: boolean } }>();
+	readonly onDidChangeState: Event<{ providerName: RefreshableProviderName, options?: { doNotFire?: boolean } }> = this._onDidChangeState.event; // this is primarily for use in react, so react can listen + update on state changes
 
 
 	constructor(
@@ -154,6 +154,10 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 	// start listening for models (and don't stop)
 	startRefreshingModels: IRefreshModelService['startRefreshingModels'] = (providerName, options) => {
 
+		// defensive guard: only refreshable providers have state slots — silently ignore
+		// anything else (e.g. openAICompatible) instead of crashing on undefined state
+		if (!refreshableProviderNames.includes(providerName)) return
+
 		this._clearProviderTimeout(providerName)
 
 		this._setRefreshState(providerName, 'refreshing', null, options)
@@ -226,7 +230,7 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 			}
 		};
 		
-		if (!options?.doNotFire) this._onDidChangeState.fire(providerName)
+		this._onDidChangeState.fire({ providerName, options });
 	}
 }
 

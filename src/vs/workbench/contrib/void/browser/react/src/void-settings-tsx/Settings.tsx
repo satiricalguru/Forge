@@ -70,8 +70,9 @@ const RefreshModelButton = ({ providerName }: { providerName: RefreshableProvide
 	const [justFinished, setJustFinished] = useState<null | 'finished' | 'error'>(null)
 
 	useRefreshModelListener(
-		useCallback((providerName2, refreshModelState) => {
+		useCallback((providerName2, refreshModelState, options) => {
 			if (providerName2 !== providerName) return
+			if (options?.doNotFire) return // Ignore auto-polling events for the manual refresh button state
 			const { state } = refreshModelState[providerName]
 			if (!(state === 'finished' || state === 'error')) return
 			// now we know we just entered 'finished' state for this providerName
@@ -85,28 +86,32 @@ const RefreshModelButton = ({ providerName }: { providerName: RefreshableProvide
 
 	const { title: providerTitle } = displayInfoOfProviderName(providerName)
 
-	return <ButtonLeftTextRightOption
+	const handleRefresh = () => {
+		if (state === 'refreshing' || justFinished !== null) return;
+		refreshModelService.startRefreshingModels(providerName, { enableProviderOnSuccess: false, doNotFire: false });
+		metricsService.capture('Click', { providerName, action: 'Refresh Models' });
+	};
 
-		leftButton={
-			<button
-				className='flex items-center'
-				disabled={state === 'refreshing' || justFinished !== null}
-				onClick={() => {
-					refreshModelService.startRefreshingModels(providerName, { enableProviderOnSuccess: false, doNotFire: false })
-					metricsService.capture('Click', { providerName, action: 'Refresh Models' })
-				}}
-			>
-				{justFinished === 'finished' ? <Check className='stroke-green-500 size-3' />
-					: justFinished === 'error' ? <X className='stroke-red-500 size-3' />
-						: state === 'refreshing' ? <Loader2 className='size-3 animate-spin' />
-							: <RefreshCw className='size-3' />}
-			</button>
-		}
-
-		text={justFinished === 'finished' ? `${providerTitle} Models are up-to-date!`
-			: justFinished === 'error' ? `${providerTitle} not found!`
-				: `Manually refresh ${providerTitle} models.`}
-	/>
+	return (
+		<button
+			type="button"
+			disabled={state === 'refreshing' || justFinished !== null}
+			onClick={handleRefresh}
+			className="flex items-center text-void-fg-3 px-3 py-1 rounded-sm overflow-hidden gap-2 hover:bg-void-bg-2 hover:text-void-fg-1 transition-colors text-left cursor-pointer disabled:cursor-not-allowed disabled:opacity-70 my-0.5"
+		>
+			<span className="flex items-center justify-center shrink-0">
+				{justFinished === 'finished' ? <Check className="stroke-green-500 size-3.5" />
+					: justFinished === 'error' ? <X className="stroke-red-500 size-3.5" />
+						: state === 'refreshing' ? <Loader2 className="size-3.5 animate-spin" />
+							: <RefreshCw className="size-3.5" />}
+			</span>
+			<span>
+				{justFinished === 'finished' ? `${providerTitle} Models are up-to-date!`
+					: justFinished === 'error' ? `${providerTitle} not found!`
+						: `Manually refresh ${providerTitle} models.`}
+			</span>
+		</button>
+	);
 }
 
 const RefreshableModels = () => {

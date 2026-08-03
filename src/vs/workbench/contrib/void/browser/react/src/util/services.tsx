@@ -76,7 +76,7 @@ const settingsStateListeners: Set<(s: VoidSettingsState) => void> = new Set()
 
 let refreshModelState: RefreshModelStateOfProvider
 const refreshModelStateListeners: Set<(s: RefreshModelStateOfProvider) => void> = new Set()
-const refreshModelProviderListeners: Set<(p: RefreshableProviderName, s: RefreshModelStateOfProvider) => void> = new Set()
+const refreshModelProviderListeners: Set<(p: RefreshableProviderName, s: RefreshModelStateOfProvider, options?: { doNotFire?: boolean }) => void> = new Set()
 
 let colorThemeState: ColorScheme
 const colorThemeStateListeners: Set<(s: ColorScheme) => void> = new Set()
@@ -155,10 +155,10 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 
 	refreshModelState = refreshModelService.state
 	disposables.push(
-		refreshModelService.onDidChangeState((providerName) => {
-			refreshModelState = refreshModelService.state
+		refreshModelService.onDidChangeState(({ providerName, options }) => {
+			refreshModelState = { ...refreshModelService.state }
 			refreshModelStateListeners.forEach(l => l(refreshModelState))
-			refreshModelProviderListeners.forEach(l => l(providerName, refreshModelState)) // no state
+			refreshModelProviderListeners.forEach(l => l(providerName, refreshModelState, options)) // pass options
 		})
 	)
 
@@ -368,7 +368,7 @@ export const useRefreshModelState = () => {
 }
 
 
-export const useRefreshModelListener = (listener: (providerName: RefreshableProviderName, s: RefreshModelStateOfProvider) => void) => {
+export const useRefreshModelListener = (listener: (providerName: RefreshableProviderName, s: RefreshModelStateOfProvider, options?: { doNotFire?: boolean }) => void) => {
 	useEffect(() => {
 		refreshModelProviderListeners.add(listener)
 		return () => { refreshModelProviderListeners.delete(listener) }

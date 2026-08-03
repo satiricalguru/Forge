@@ -1,15 +1,66 @@
-import React from 'react';
-import { X, Settings as SettingsIcon, Eye, EyeOff, Plug } from 'lucide-react';
+import React, { useEffect } from 'react';
+import { X, Settings as SettingsIcon, Eye, EyeOff, RefreshCw } from 'lucide-react';
 import { useSettingsState, useRefreshModelState, useAccessor } from '../util/services.js';
-import { localProviderNames, displayInfoOfProviderName, ProviderName } from '../../../../../../../workbench/contrib/void/common/voidSettingsTypes.js';
+import { localProviderNames, refreshableProviderNames, displayInfoOfProviderName, ProviderName } from '../../../../../../../workbench/contrib/void/common/voidSettingsTypes.js';
 import { getModelCapabilities } from '../../../../../../../workbench/contrib/void/common/modelCapabilities.js';
 import { VOID_OPEN_SETTINGS_ACTION_ID } from '../../../voidSettingsPane.js';
+
+const getRealtimeContext = (rawModel: any): number | undefined => {
+	if (!rawModel) return undefined;
+	if (typeof rawModel.context_length === 'number' && rawModel.context_length > 0) return rawModel.context_length;
+	if (typeof rawModel.loaded_context_length === 'number' && rawModel.loaded_context_length > 0) return rawModel.loaded_context_length;
+	if (typeof rawModel.max_context_length === 'number' && rawModel.max_context_length > 0) return rawModel.max_context_length;
+	if (typeof rawModel.max_model_len === 'number' && rawModel.max_model_len > 0) return rawModel.max_model_len;
+	if (typeof rawModel.context_window === 'number' && rawModel.context_window > 0) return rawModel.context_window;
+	if (typeof rawModel.num_ctx === 'number' && rawModel.num_ctx > 0) return rawModel.num_ctx;
+	if (typeof rawModel.details?.context_length === 'number' && rawModel.details.context_length > 0) return rawModel.details.context_length;
+
+	if (rawModel.model_info && typeof rawModel.model_info === 'object') {
+		for (const k of Object.keys(rawModel.model_info)) {
+			if (k.endsWith('.context_length') || k === 'context_length') {
+				const val = Number(rawModel.model_info[k]);
+				if (!isNaN(val) && val > 0) return val;
+			}
+		}
+	}
+	if (rawModel.parameters && typeof rawModel.parameters === 'string') {
+		const match = rawModel.parameters.match(/num_ctx\s+(\d+)/);
+		if (match) {
+			const val = parseInt(match[1], 10);
+			if (!isNaN(val) && val > 0) return val;
+		}
+	}
+	return undefined;
+};
+
+const getContextFromModelName = (modelName: string): number | undefined => {
+	const match = modelName.toLowerCase().match(/(\d+)k/);
+	if (match) {
+		const kVal = parseInt(match[1], 10);
+		if (!isNaN(kVal) && kVal > 0) return kVal * 1024;
+	}
+	return undefined;
+};
+
+const formatContextSize = (tokens: number): string => {
+	if (tokens >= 1_000_000) return `${Math.round(tokens / 1_000_000)}M`;
+	if (tokens >= 1_000) return `${Math.round(tokens / 1024)}K`;
+	return `${tokens}`;
+};
 
 export const ModelCapabilitiesModal = ({ onClose }: { onClose: () => void }) => {
 	const settingsState = useSettingsState();
 	const refreshModelState = useRefreshModelState();
 	const accessor = useAccessor();
 	const commandService = accessor.get('ICommandService');
+	const refreshModelService = accessor.get('IRefreshModelService');
+
+	useEffect(() => {
+		// refreshableProviderNames only — the refresh service has no state slot for openAICompatible
+		for (const providerName of refreshableProviderNames) {
+			refreshModelService.startRefreshingModels(providerName, { enableProviderOnSuccess: false, doNotFire: false });
+		}
+	}, [refreshModelService]);
 
 	return (
 		<div 
@@ -28,7 +79,8 @@ export const ModelCapabilitiesModal = ({ onClose }: { onClose: () => void }) => 
 				{/* Body */}
 				<div className="p-4 overflow-y-auto flex flex-col gap-6">
 					{localProviderNames.map(providerName => {
-						const state = (refreshModelState as any)[providerName]?.state;
+						const providerState = (refreshModelState as any)[providerName];
+						const state = providerState?.state;
 						const models = settingsState.settingsOfProvider[providerName]?.models || [];
 						const providerInfo = displayInfoOfProviderName(providerName);
 
@@ -43,15 +95,29 @@ export const ModelCapabilitiesModal = ({ onClose }: { onClose: () => void }) => 
 										<Eye className="w-4 h-4 text-void-fg-3" />
 										<span className="font-medium text-void-fg-1">{providerInfo.title}</span>
 									</div>
-									<div 
-										title="Open Settings"
-										className="cursor-pointer flex items-center justify-center"
-										onClick={() => {
-											onClose();
-											commandService.executeCommand(VOID_OPEN_SETTINGS_ACTION_ID);
-										}}
-									>
-										<SettingsIcon className="w-4 h-4 text-void-fg-3 hover:text-void-fg-1" />
+									<div className="flex items-center gap-2">
+										<button
+											title={`Refresh ${providerInfo.title} Models`}
+											className="p-1 hover:bg-void-bg-1 rounded-md text-void-fg-3 hover:text-void-fg-1 cursor-pointer disabled:opacity-50"
+											disabled={state === 'refreshing' || !refreshableProviderNames.includes(providerName as any)}
+											onClick={() => {
+												if (refreshableProviderNames.includes(providerName as any)) {
+													refreshModelService.startRefreshingModels(providerName as any, { enableProviderOnSuccess: false, doNotFire: false });
+												}
+											}}
+										>
+											<RefreshCw className={`w-4 h-4 ${state === 'refreshing' ? 'animate-spin' : ''}`} />
+										</button>
+										<div 
+											title="Open Settings"
+											className="cursor-pointer flex items-center justify-center p-1 hover:bg-void-bg-1 rounded-md text-void-fg-3 hover:text-void-fg-1"
+											onClick={() => {
+												onClose();
+												commandService.executeCommand(VOID_OPEN_SETTINGS_ACTION_ID);
+											}}
+										>
+											<SettingsIcon className="w-4 h-4" />
+										</div>
 									</div>
 								</div>
 								
@@ -65,16 +131,13 @@ export const ModelCapabilitiesModal = ({ onClose }: { onClose: () => void }) => 
 									)}
 									
 									{models.length > 0 && models.map((model, i) => {
-										const refreshStateModels = (refreshModelState as any)[providerName]?.models;
-										const rawModel = refreshStateModels?.find((m: any) => (m.name || m.id) === model.modelName) as any;
+										const refreshStateModels = providerState?.models;
+										const rawModel = refreshStateModels?.find((m: any) => (m.name || m.id || m.model) === model.modelName) as any;
 										
 										const capabilities = getModelCapabilities(providerName, model.modelName, undefined);
-										// Ollama: details.context_length | LM Studio: loaded_context_length > max_context_length | vLLM/generic: context_length / context_window
-									const realtimeContext = providerName === 'ollama'
-										? rawModel?.details?.context_length
-										: (rawModel?.loaded_context_length ?? rawModel?.max_context_length ?? rawModel?.context_length ?? rawModel?.context_window);
+										const realtimeContext = getRealtimeContext(rawModel) ?? getContextFromModelName(model.modelName);
 										const contextWindow = realtimeContext ?? capabilities?.contextWindow;
-										const contextSize = contextWindow ? `${Math.round(contextWindow / 1000)}K` : 'Unknown';
+										const contextSize = contextWindow ? formatContextSize(contextWindow) : 'Unknown';
 										
 										return (
 											<div key={model.modelName} className={`flex items-center justify-between p-3 ${i !== models.length - 1 ? 'border-b border-void-border-3' : ''}`}>
