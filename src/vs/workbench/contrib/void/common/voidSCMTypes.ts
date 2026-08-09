@@ -51,10 +51,6 @@ export interface IVoidSCMService {
 	 * Commit with message
 	 */
 	gitCommit(path: string, message: string): Promise<void>
-	/**
-	 * Get HEAD version of a file as a temporary file path
-	 */
-	gitGetOriginalFile(path: string, file: string): Promise<string>
 }
 
 export const IVoidSCMService = createDecorator<IVoidSCMService>('voidSCMService')

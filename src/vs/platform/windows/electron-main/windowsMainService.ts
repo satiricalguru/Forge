@@ -292,21 +292,27 @@ export class WindowsMainService extends Disposable implements IWindowsMainServic
 		this.handleWaitMarkerFile(openConfig, [window]);
 	}
 
-	async openAgentsWindow(openConfig: IOpenConfiguration, folderUri?: URI, sessionResource?: URI): Promise<ICodeWindow[]> {
+	async openAgentsWindow(openConfig: IOpenConfiguration): Promise<ICodeWindow[]> {
 		this.logService.trace('windowsManager#openAgentsWindow');
 
-		// Open in a new browser window with the agent sessions workspace
-		const windows = await this.open(await this.ensureAgentsWindow(openConfig));
-
-		// Single IPC carrying the folder to pre-select and an optional existing-
-		// session resource to open. The handler in the agents window sequences
-		// them (folder → open session) so the session-open doesn't race the
-		// folder-resolve.
-		if ((folderUri || sessionResource) && windows.length > 0) {
-			windows[0].sendWhenReady('vscode:selectAgentsFolder', CancellationToken.None, folderUri?.toJSON(), sessionResource?.toJSON());
+		const agentSessionsWorkspaceUri = this.environmentMainService.agentSessionsWorkspace;
+		if (!agentSessionsWorkspaceUri) {
+			throw new Error('Agents workspace is not configured');
 		}
 
-		return windows;
+		// Reuse an already-open agents window instead of stacking duplicates
+		// on the same workspace
+		for (const codeWindow of this.windows.values()) {
+			const opened = codeWindow.openedWorkspace;
+			const openedUri = opened && (isWorkspaceIdentifier(opened) ? opened.configPath : opened.uri);
+			if (openedUri && extUriBiasedIgnorePathCase.isEqual(openedUri, agentSessionsWorkspaceUri)) {
+				codeWindow.focus();
+				return [codeWindow];
+			}
+		}
+
+		// Open in a new browser window with the agent sessions workspace
+		return this.open(await this.ensureAgentsWindow(openConfig));
 	}
 
 	private async ensureAgentsWindow(openConfig: IOpenConfiguration): Promise<IOpenConfiguration> {

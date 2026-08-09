@@ -37,7 +37,8 @@ class ContextGatheringService extends Disposable implements IContextGatheringSer
 	private readonly _MAX_SNIPPET_LINES = 7;  // Reasonable size for context
 	// Cache holds the most recent list of snippets.
 	private _cache: string[] = [];
-	private _snippetIntervals: IVisitedInterval[] = [];
+	/** monotonic counter so stale gather completions can't clobber newer ones */
+	private _updateSeq = 0;
 
 	constructor(
 		@ILanguageFeaturesService private readonly _langFeaturesService: ILanguageFeaturesService,
@@ -62,11 +63,16 @@ class ContextGatheringService extends Disposable implements IContextGatheringSer
 	}
 
 	public async updateCache(model: ITextModel, pos: Position): Promise<void> {
+		const seq = ++this._updateSeq;
 		const snippets = new Set<string>();
-		this._snippetIntervals = []; // Reset intervals for new cache update
+		// per-call visited state so concurrent updates can't clobber each other
+		const intervals: IVisitedInterval[] = [];
 
-		await this._gatherNearbySnippets(model, pos, this._NUM_LINES, 3, snippets, this._snippetIntervals);
-		await this._gatherParentSnippets(model, pos, this._NUM_LINES, 3, snippets, this._snippetIntervals);
+		await this._gatherNearbySnippets(model, pos, this._NUM_LINES, 3, snippets, intervals);
+		await this._gatherParentSnippets(model, pos, this._NUM_LINES, 3, snippets, intervals);
+
+		// drop the result if a newer update superseded it
+		if (seq !== this._updateSeq) return;
 
 		// Convert to array and filter overlapping snippets
 		this._cache = Array.from(snippets);

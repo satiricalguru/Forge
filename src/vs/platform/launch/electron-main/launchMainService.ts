@@ -139,7 +139,14 @@ export class LaunchMainService implements ILaunchMainService {
 
 		// Special case agents window
 		if (args.agents) {
-			await this.windowsMainService.openAgentsWindow(baseConfig);
+			try {
+				await this.windowsMainService.openAgentsWindow(baseConfig);
+			} catch (err) {
+				// the agents workspace may be unavailable (e.g. restored contents
+				// missing) — fall back to a normal window instead of aborting startup
+				this.logService.error('[agents] Failed to open agents window, falling back to a regular window', err);
+				await this.windowsMainService.open(baseConfig);
+			}
 			return;
 		}
 

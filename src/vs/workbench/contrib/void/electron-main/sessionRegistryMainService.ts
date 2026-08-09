@@ -29,7 +29,8 @@ export class SessionRegistryMainService implements ISessionRegistryService {
 	private readonly _sessionsDir: string;
 	/** In-memory cache keyed by session id */
 	private readonly _sessions = new Map<string, IAgentSession>();
-	private _loaded = false;
+	/** In-flight/complete load promise so concurrent callers can't race the scan */
+	private _loadingPromise: Promise<void> | undefined;
 
 	constructor() {
 		this._sessionsDir = path.join(os.homedir(), '.forge', 'sessions');
@@ -51,10 +52,15 @@ export class SessionRegistryMainService implements ISessionRegistryService {
 
 	async get(id: string): Promise<IAgentSession | undefined> {
 		await this._ensureLoaded();
+		if (!this._isValidId(id)) return undefined;
 		return this._sessions.get(id);
 	}
 
 	async create(opts: ISessionCreateOpts): Promise<IAgentSession> {
+		await this._ensureLoaded();
+		if (!this._isValidId(opts.chatThreadId)) {
+			throw new Error(`SessionRegistry: invalid session id`);
+		}
 		const now = Date.now();
 		const session: IAgentSession = {
 			id: opts.chatThreadId, // align session ID with chatThread ID for direct mapping
@@ -80,6 +86,8 @@ export class SessionRegistryMainService implements ISessionRegistryService {
 	}
 
 	async update(id: string, patch: Partial<IAgentSession>): Promise<void> {
+		await this._ensureLoaded();
+		if (!this._isValidId(id)) return;
 		const session = this._sessions.get(id);
 		if (!session) return;
 
@@ -93,6 +101,8 @@ export class SessionRegistryMainService implements ISessionRegistryService {
 	}
 
 	async remove(id: string): Promise<void> {
+		await this._ensureLoaded();
+		if (!this._isValidId(id)) return;
 		const session = this._sessions.get(id);
 		if (!session) return;
 
@@ -157,13 +167,21 @@ export class SessionRegistryMainService implements ISessionRegistryService {
 		}
 	}
 
-	private async _ensureLoaded(): Promise<void> {
-		if (this._loaded) return;
-		this._loaded = true;
+	private _ensureLoaded(): Promise<void> {
+		if (!this._loadingPromise) {
+			this._loadingPromise = this._loadSessions().catch(err => {
+				console.error('[SessionRegistry] Failed to load sessions:', err);
+				this._loadingPromise = undefined; // allow a later call to retry
+			});
+		}
+		return this._loadingPromise;
+	}
 
+	private async _loadSessions(): Promise<void> {
 		try {
 			if (!fs.existsSync(this._sessionsDir)) return;
 
+			const seenIds = new Set<string>();
 			const wsDirs = await fs.promises.readdir(this._sessionsDir, { withFileTypes: true });
 			for (const wsDir of wsDirs) {
 				if (!wsDir.isDirectory()) continue;
@@ -174,7 +192,11 @@ export class SessionRegistryMainService implements ISessionRegistryService {
 					try {
 						const raw = await fs.promises.readFile(path.join(wsDirPath, file), 'utf8');
 						const json = JSON.parse(raw);
-						if (json.id) {
+						if (json.id && this._isValidId(json.id)) {
+							// Validate the filename matches the id so a skewed
+							// file can't be registered under the wrong key
+							if (file !== `${json.id}.json`) continue;
+							seenIds.add(json.id);
 							if (!json.messages || json.messages.length === 0) {
 								// Delete empty session file to clean up disk
 								fs.promises.unlink(path.join(wsDirPath, file)).catch(() => {});
@@ -206,9 +228,24 @@ export class SessionRegistryMainService implements ISessionRegistryService {
 					}
 				}
 			}
+
+			// prune stale entries: sessions that were previously cached but no
+			// longer have a file on disk (e.g. cleaned up empty files above or
+			// files deleted externally)
+			for (const id of Array.from(this._sessions.keys())) {
+				if (!seenIds.has(id)) {
+					this._sessions.delete(id);
+				}
+			}
 		} catch (err) {
-			console.error('[SessionRegistry] Failed to load sessions:', err);
+			throw err;
 		}
+	}
+
+	private _isValidId(id: string | undefined): boolean {
+		if (typeof id !== 'string' || id.length === 0 || id.length > 200) return false;
+		// block path separators and traversal so ids can't escape the sessions dir
+		return !/[\\/\0]/.test(id) && !id.includes('..');
 	}
 
 	private _ensureDir(dirPath: string): void {

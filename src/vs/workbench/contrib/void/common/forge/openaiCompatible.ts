@@ -50,7 +50,13 @@ export class OpenAICompatibleProvider extends BaseHttpProvider {
 
 	private _url(base: string, path: string): string {
 		const sep = path.startsWith('/') ? '' : '/';
-		return `${base}/v1${path.startsWith('/') ? path : sep + path}`;
+		// spec paths already carry the full /v1 prefix (llama.cpp, LocalAI, custom
+		// OpenAI-compatible endpoints); unprefixed paths (vLLM via /online/models)
+		// get /v1 added. Never double-prefix.
+		if (path.startsWith('/v1')) {
+			return `${base}${sep}${path}`;
+		}
+		return `${base}/v1${sep}${path}`;
 	}
 
 	protected override async _probeModels(token: CancellationToken) {
@@ -71,8 +77,11 @@ export class OpenAICompatibleProvider extends BaseHttpProvider {
 		if (req.tools) body.tools = req.tools;
 		const headers: Record<string, string> = { 'Authorization': `Bearer ${this.apiKey}`, ...this.customHeaders };
 		const handle = await streamSSE(this._url(ep, this.chatPath), body, req.signal, (obj) => {
-			const o = obj as { choices?: { delta?: { content?: string; tool_calls?: { id?: string; function?: { name?: string; arguments?: string } }[] } }[] };
+			const o = obj as { choices?: { delta?: { content?: string; tool_calls?: { id?: string; function?: { name?: string; arguments?: string } }[]; reasoning_content?: string; reasoning?: string } }[] };
 			const delta = o.choices?.[0]?.delta;
+			// vLLM (and some llama.cpp builds) stream reasoning via `reasoning_content`
+			if (delta?.reasoning_content) onChunk({ kind: 'reasoning', text: delta.reasoning_content });
+			else if (delta?.reasoning) onChunk({ kind: 'reasoning', text: delta.reasoning });
 			if (delta?.content) onChunk({ kind: 'text', text: delta.content });
 			if (delta?.tool_calls) {
 				for (const tc of delta.tool_calls) {

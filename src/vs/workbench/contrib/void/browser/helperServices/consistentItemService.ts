@@ -73,9 +73,15 @@ export class ConsistentItemService extends Disposable implements IConsistentItem
 		// when editor is disposed
 		const addDisposeListener = (editor: ICodeEditor) => {
 			this._register(editor.onDidDispose(() => {
-				// anything on the editor has been disposed already
-				for (const itemId of this.itemIdsOfEditorId[editor.getId()] ?? [])
+				// anything on the editor has been disposed already; drop all
+				// bookkeeping for this editor so the maps don't grow unboundedly
+				const editorId = editor.getId()
+				const itemIds = this.itemIdsOfEditorId[editorId] ?? []
+				for (const itemId of itemIds) {
 					delete this.disposeFnOfItemId[itemId]
+					delete this.consistentItemIdOfItemId[itemId]
+				}
+				delete this.itemIdsOfEditorId[editorId]
 			}))
 		}
 

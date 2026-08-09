@@ -36,6 +36,7 @@ export async function localFetch(url: string, init?: RequestInit & { timeoutMs?:
 	try {
 		const res = await fetch(url, { ...rest, signal: controller.signal });
 		if (!res.ok) {
+			controller.abort(); // close the connection; we won't read the error body
 			throw new HttpError(res.status, `${res.status} ${res.statusText} for ${url}`);
 		}
 		return res;
@@ -70,9 +71,36 @@ export function assertLocalUrl(url: string) {
 }
 
 
+// Minimal structural typing for the fetch() response body stream. We avoid
+// referencing lib.dom's ReadableStream/ReadableStreamDefaultReader here so
+// this file stays valid in the `common` layer (see build/lib/layersChecker.js).
+interface StreamReader {
+	read(): Promise<{ value: Uint8Array | undefined; done: boolean }>;
+	releaseLock(): void;
+	cancel(reason?: unknown): Promise<void>;
+}
+
+type StreamBody = { getReader(): StreamReader };
+
+const toStreamBody = (body: unknown): StreamBody | null => {
+	if (body && typeof (body as StreamBody).getReader === 'function') {
+		return body as StreamBody;
+	}
+	return null;
+};
+
+const STREAM_IDLE_TIMEOUT_MS = 60_000;
+const MAX_STREAM_BUFFER_BYTES = 16 * 1024 * 1024;
+
+
 /**
  * Streaming SSE/NDJSON reader. Calls `onChunk` with each parsed JSON object.
  * Returns a cancel function.
+ *
+ * `finished` resolves on a clean end-of-stream OR when the caller cancels via
+ * `signal`/`cancel()`. It REJECTS on genuine network/protocol errors (and on
+ * an idle stream that produces no data for `STREAM_IDLE_TIMEOUT_MS`) so
+ * callers can surface truncated responses instead of committing them as success.
  */
 export async function streamSSE(
 	url: string,
@@ -82,50 +110,94 @@ export async function streamSSE(
 	headers: Record<string, string> = {},
 ): Promise<{ cancel(): void; finished: Promise<void> }> {
 	const controller = new AbortController();
+	let cancelledLocally = false;
+	let idleTimedOut = false;
+
+	const abortListener = () => {
+		cancelledLocally = true;
+		controller.abort();
+	};
 	if (signal) {
-		if (signal.aborted) controller.abort();
-		signal.addEventListener('abort', () => controller.abort());
+		if (signal.aborted) abortListener();
+		else signal.addEventListener('abort', abortListener);
 	}
 
-	const res = await localFetch(url, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', ...headers },
-		body: JSON.stringify(body),
-		signal: controller.signal,
-		timeoutMs: 60_000,
-	});
+	try {
+		const res = await localFetch(url, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', ...headers },
+			body: JSON.stringify(body),
+			signal: controller.signal,
+		});
 
-	const reader = res.body?.getReader();
-	if (!reader) throw new Error('No response body for streaming request');
+		const reader = toStreamBody(res.body)?.getReader();
+		if (!reader) throw new Error('No response body for streaming request');
 
-	const decoder = new TextDecoder();
-	let buf = '';
-	const cancel = () => controller.abort();
+		const decoder = new TextDecoder();
+		let buf = '';
+		let idleTimer: ReturnType<typeof setTimeout> | null = null;
 
-	const finished = (async () => {
-		try {
-			while (true) {
-				const { value, done } = await reader.read();
-				if (done) break;
-				buf += decoder.decode(value, { stream: true });
-				const parts = buf.split(/\r?\n\r?\n|\r?\n/).filter(Boolean);
-				buf = parts.pop() ?? '';
-				for (const part of parts) {
-					const line = part.startsWith('data:') ? part.slice(5).trim() : part.trim();
-					if (!line || line === '[DONE]') continue;
-					try {
-						onChunk(JSON.parse(line));
-					} catch {
-						// ignore non-JSON lines
+		const armIdleTimeout = () => {
+			if (idleTimer) clearTimeout(idleTimer);
+			idleTimer = setTimeout(() => {
+				idleTimedOut = true;
+				controller.abort();
+			}, STREAM_IDLE_TIMEOUT_MS);
+		};
+		const clearIdleTimeout = () => {
+			if (idleTimer) {
+				clearTimeout(idleTimer);
+				idleTimer = null;
+			}
+		};
+
+		const parsePart = (part: string) => {
+			const line = part.startsWith('data:') ? part.slice(5).trim() : part.trim();
+			if (!line || line === '[DONE]') return;
+			try {
+				onChunk(JSON.parse(line));
+			} catch {
+				// ignore non-JSON lines
+			}
+		};
+
+		const cancel = () => abortListener();
+
+		const finished = (async () => {
+			try {
+				armIdleTimeout();
+				while (true) {
+					const { value, done } = await reader.read();
+					if (done) break;
+					armIdleTimeout();
+					buf += decoder.decode(value, { stream: true });
+					if (buf.length > MAX_STREAM_BUFFER_BYTES) {
+						throw new Error(`SSE stream from ${url} exceeded the maximum buffer size (${MAX_STREAM_BUFFER_BYTES} bytes)`);
+					}
+					const parts = buf.split(/\r?\n\r?\n|\r?\n/).filter(Boolean);
+					buf = parts.pop() ?? '';
+					for (const part of parts) {
+						parsePart(part);
 					}
 				}
+				// process any residual partial chunk the final read left behind
+				if (buf) parsePart(buf);
+			} catch (err) {
+				if (!cancelledLocally) {
+					throw idleTimedOut ? new Error(`Stream from ${url} timed out after ${STREAM_IDLE_TIMEOUT_MS}ms without data`) : err;
+				}
+				// aborted by signal/cancel — resolve cleanly like a normal end
+			} finally {
+				clearIdleTimeout();
+				signal?.removeEventListener('abort', abortListener);
+				try { reader.releaseLock(); } catch { /* ignore */ }
 			}
-		} catch {
-			// aborted or network error
-		} finally {
-			try { reader.releaseLock(); } catch { /* ignore */ }
-		}
-	})();
+		})();
 
-	return { cancel, finished };
+		return { cancel, finished };
+	} catch (err) {
+		// don't leak the abort listener if localFetch itself failed
+		signal?.removeEventListener('abort', abortListener);
+		throw err;
+	}
 }

@@ -61,7 +61,8 @@ export const idOfPersistentTerminalName = (name: string) => {
 
 	const match = name.match(/Void Agent \((\d+)\)/)
 	if (!match) return null
-	if (Number.isInteger(match[1]) && Number(match[1]) >= 1) return match[1]
+	const n = Number(match[1])
+	if (Number.isInteger(n) && n >= 1) return match[1]
 	return null
 }
 
@@ -278,7 +279,12 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 			this.temporaryTerminalInstanceOfId[params.terminalId] = terminal
 		}
 
+		let interruptResolve: (() => void) | undefined
+
 		const interrupt = () => {
+			// settle any pending waiter immediately so abort is low-latency and a
+			// late timeout path never reads a disposed terminal
+			interruptResolve?.()
 			terminal.dispose()
 			if (!isPersistent)
 				delete this.temporaryTerminalInstanceOfId[params.terminalId]
@@ -317,13 +323,23 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 			// send the command now that listeners are attached
 			await terminal.sendText(command, true)
 
-			const waitUntilInterrupt = isPersistent ?
+			const waitUntilInterrupt = new Promise<void>(resolve => {
+				interruptResolve = () => {
+					if (resolveReason) return
+					resolveReason = { type: 'interrupted' };
+					resolve()
+				};
+			})
+
+			const waitUntilTimeout = isPersistent ?
 				// timeout after X seconds
 				new Promise<void>((res) => {
-					setTimeout(() => {
+					const timerHandle = setTimeout(() => {
+						if (resolveReason) return
 						resolveReason = { type: 'timeout' };
 						res()
 					}, MAX_TERMINAL_BG_COMMAND_TIME * 1000)
+					disposables.push(toDisposable(() => clearTimeout(timerHandle)))
 				})
 				// inactivity-based timeout
 				: new Promise<void>(res => {
@@ -344,10 +360,14 @@ export class TerminalToolService extends Disposable implements ITerminalToolServ
 				})
 
 			// wait for result
-			await Promise.any([waitUntilDone, waitUntilInterrupt])
+			await Promise.any([waitUntilDone, waitUntilTimeout, waitUntilInterrupt])
 				.finally(() => disposables.forEach(d => d.dispose()))
 
 
+			// an interrupted command has no output; don't try to read a disposed terminal
+			if (resolveReason?.type === 'interrupted') {
+				return { result: '', resolveReason }
+			}
 
 			// read result if timed out, since we didn't get it (could clean this code up but it's ok)
 			if (resolveReason?.type === 'timeout') {

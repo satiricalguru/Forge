@@ -27,11 +27,18 @@ export class LocalProviderRegistryService extends Disposable implements ILocalPr
 	readonly onDidChangeHealth: Event<{ providerId: string; health: ProviderHealth }> = this._onDidChangeHealth.event;
 
 	private readonly _health = new Map<string, ProviderHealth>();
-	private _discoveryTimer: NodeJS.Timeout | null = null;
+	private _discoveryTimer: ReturnType<typeof setInterval> | null = null;
 	private _activeProbe: CancellationTokenSource | null = null;
 
 	/** Per-provider backoff state keyed by provider id */
 	private readonly _backoffOfProviderId = new Map<string, { attempt: number; nextProbeAt: number }>();
+
+	/**
+	 * Serializes probes per provider so a stale probe can never overwrite a
+	 * newer result (last-write-wins race). The chain also guarantees the
+	 * healthcheck of a provider is never running twice at once.
+	 */
+	private readonly _probeChainOfProviderId = new Map<string, Promise<void>>();
 
 	constructor(
 		@ILocalProviderRegistry private readonly registry: ILocalProviderRegistry,
@@ -89,18 +96,55 @@ export class LocalProviderRegistryService extends Disposable implements ILocalPr
 		}
 	}
 
-	private async _probe(provider: ILocalProvider, outerToken?: CancellationToken): Promise<ProviderHealth> {
+	private _probe(provider: ILocalProvider, outerToken?: CancellationToken): Promise<ProviderHealth> {
+		const providerId = provider.id;
+
+		// Serialize per provider: wait for any in-flight probe to settle before
+		// running this one. `_doProbe` is the actual probe; the chain never
+		// rejects so a failed probe can't break later ones.
+		const previous = this._probeChainOfProviderId.get(providerId) ?? Promise.resolve();
+		const probeResult = previous.then(() => this._doProbe(provider, outerToken));
+		const chain = probeResult
+			.catch(() => { /* _doProbe never throws; kept for safety */ })
+			.then(() => {
+				if (this._probeChainOfProviderId.get(providerId) === chain) {
+					this._probeChainOfProviderId.delete(providerId);
+				}
+			});
+		this._probeChainOfProviderId.set(providerId, chain);
+		return probeResult;
+	}
+
+	private async _doProbe(provider: ILocalProvider, outerToken?: CancellationToken): Promise<ProviderHealth> {
 		this._setHealth(provider.id, { status: 'checking' });
 
 		const localCts = new CancellationTokenSource(outerToken);
-		const timer = setTimeout(() => localCts.cancel(), HEALTH_PROBE_TIMEOUT_MS);
-
 		const start = Date.now();
+
+		// Enforce the timeout against the whole probe (including JSON body reads
+		// that fetch()'s own timer no longer covers once headers arrived).
+		let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+		const cleanup = () => { if (timeoutTimer) clearTimeout(timeoutTimer); };
+		const waitForTimeout = new Promise<never>((_, reject) => {
+			timeoutTimer = setTimeout(() => {
+				localCts.cancel();
+				reject(new Error(`Health check for ${provider.id} exceeded ${HEALTH_PROBE_TIMEOUT_MS}ms`));
+			}, HEALTH_PROBE_TIMEOUT_MS);
+		});
+		const cancelListener = localCts.token.onCancellationRequested(() => cleanup());
+
 		try {
-			const result = await provider.healthcheck(localCts.token);
+			const result = await Promise.race([
+				provider.healthcheck(localCts.token).catch((err: unknown) => {
+					// healthcheck contracts never throw; guard against rogue providers
+					return { status: 'unhealthy' as const, error: (err instanceof Error ? err.message : String(err)), latencyMs: Date.now() - start };
+				}),
+				waitForTimeout,
+			]);
+			if (timeoutTimer) clearTimeout(timeoutTimer);
 			const latency = Date.now() - start;
-			clearTimeout(timer);
 			localCts.dispose();
+			cancelListener.dispose();
 
 			let health: ProviderHealth;
 			if (result.status === 'healthy') {
@@ -116,8 +160,8 @@ export class LocalProviderRegistryService extends Disposable implements ILocalPr
 			this._setHealth(provider.id, health);
 			return health;
 		} catch (err) {
-			clearTimeout(timer);
 			localCts.dispose();
+			cancelListener.dispose();
 			const health: ProviderHealth = { status: 'unhealthy', error: (err instanceof Error ? err.message : String(err)), latencyMs: Date.now() - start };
 			this._setHealth(provider.id, health);
 			this._scheduleBackoff(provider.id);
@@ -153,7 +197,7 @@ export class LocalProviderRegistryService extends Disposable implements ILocalPr
 	/**
 	 * Pull the auto-discovered model list for a ProviderName (used to populate the model picker).
 	 */
-	async listModelsFor(providerName: ProviderName, token = new CancellationTokenSource().token): Promise<ModelList> {
+	async listModelsFor(providerName: ProviderName, token: CancellationToken = CancellationToken.None): Promise<ModelList> {
 		const provider = resolveForgeProvider(providerName, this.settingsService.state.settingsOfProvider);
 		if (!provider) return { models: [] };
 		try {

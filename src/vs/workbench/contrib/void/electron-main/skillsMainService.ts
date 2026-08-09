@@ -133,6 +133,15 @@ export class SkillsMainService implements ISkillsService {
 	private watchers: Map<string, fs.FSWatcher> = new Map();
 	private userSkillsDir: string;
 
+	/** key of the workspace set the current cache was built with */
+	private _cacheWorkspaceKey = '';
+	/** true when the watcher saw changes or the workspace set changed */
+	private _dirty = true;
+	/** serializes concurrent reloads */
+	private _reload: Promise<void> = Promise.resolve();
+	private _lastWorkspacePaths: string[] = [];
+	private _reloadDebounce: ReturnType<typeof setTimeout> | undefined;
+
 	constructor() {
 		this.userSkillsDir = path.join(os.homedir(), '.forge', 'skills');
 		if (!fs.existsSync(this.userSkillsDir)) {
@@ -151,9 +160,14 @@ export class SkillsMainService implements ISkillsService {
 
 		try {
 			if (fs.existsSync(dirPath)) {
-				const watcher = fs.watch(dirPath, { recursive: true }, (event, filename) => {
-					console.log(`Skills changed in ${dirPath}: ${event} on ${filename}`);
-					// invalidate cached skills
+				const watcher = fs.watch(dirPath, { recursive: true }, () => {
+					// invalidate the cache and schedule a debounced background
+					// reload so skill edits apply without a restart
+					this._dirty = true;
+					clearTimeout(this._reloadDebounce);
+					this._reloadDebounce = setTimeout(() => {
+						void this.reloadAll(this._lastWorkspacePaths);
+					}, 300);
 				});
 				this.watchers.set(dirPath, watcher);
 			}
@@ -162,7 +176,15 @@ export class SkillsMainService implements ISkillsService {
 		}
 	}
 
-	private async reloadAll(workspacePaths: string[] = []) {
+	async reloadAll(workspacePaths: string[] = []) {
+		this._lastWorkspacePaths = workspacePaths;
+		// serialize reloads so concurrent calls can't interleave the scan
+		const run = !this._dirty ? Promise.resolve() : this._scan(workspacePaths);
+		this._dirty = false;
+		await run;
+	}
+
+	private async _scan(workspacePaths: string[]) {
 		const allSkills: ISkill[] = [];
 
 		// User-level skills
@@ -188,7 +210,15 @@ export class SkillsMainService implements ISkillsService {
 	}
 
 	async getSkills(workspacePaths: string[]): Promise<ISkill[]> {
-		await this.reloadAll(workspacePaths);
+		const key = [...workspacePaths].slice().sort().join('\u0000');
+		if (key !== this._cacheWorkspaceKey) {
+			this._cacheWorkspaceKey = key;
+			this._dirty = true;
+		}
+		if (!this._dirty) return this.skills;
+
+		this._reload = this._reload.then(() => this.reloadAll(workspacePaths)).catch(() => { /* reloadAll never throws; defensive */ });
+		await this._reload;
 		return this.skills;
 	}
 
@@ -283,9 +313,11 @@ export class SkillsMainService implements ISkillsService {
 	}
 
 	dispose() {
+		clearTimeout(this._reloadDebounce);
 		for (const watcher of this.watchers.values()) {
 			watcher.close();
 		}
 		this.watchers.clear();
+		this.watchedPaths.clear();
 	}
 }

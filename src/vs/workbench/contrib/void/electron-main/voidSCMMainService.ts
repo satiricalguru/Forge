@@ -4,7 +4,8 @@
  *--------------------------------------------------------------------------------------*/
 
 import { promisify } from 'util'
-import { exec as _exec } from 'child_process'
+import { execFile as _execFile } from 'child_process'
+import type { ExecFileOptions } from 'child_process'
 import * as path from 'path'
 import * as fs from 'fs'
 import { IVoidSCMService } from '../common/voidSCMTypes.js'
@@ -15,14 +16,14 @@ interface NumStat {
 	removed: number
 }
 
-const exec = promisify(_exec)
+const execFile = promisify(_execFile)
 
 //8000 and 10 were chosen after some experimentation on small-to-moderately sized changes
 const MAX_DIFF_LENGTH = 8000
 const MAX_DIFF_FILES = 10
 
-const git = async (command: string, cwdPath: string): Promise<string> => {
-	const { stdout, stderr } = await exec(`${command}`, { cwd: cwdPath })
+const git = async (args: string[], cwdPath: string, options?: ExecFileOptions): Promise<string> => {
+	const { stdout, stderr } = await execFile('git', args, { cwd: cwdPath, ...options })
 	if (stderr) {
 		// git checkout or show might output warnings to stderr, but if stdout has content we still treat it as success
 		if (!stdout) {
@@ -33,8 +34,7 @@ const git = async (command: string, cwdPath: string): Promise<string> => {
 }
 
 const getNumStat = async (path: string, useStagedChanges: boolean): Promise<NumStat[]> => {
-	const staged = useStagedChanges ? '--staged' : ''
-	const output = await git(`git diff --numstat ${staged}`, path)
+	const output = await git(['diff', '--numstat', ...(useStagedChanges ? ['--staged'] : [])], path)
 	return output
 		.split('\n')
 		.filter(Boolean)
@@ -49,13 +49,12 @@ const getNumStat = async (path: string, useStagedChanges: boolean): Promise<NumS
 }
 
 const getSampledDiff = async (file: string, path: string, useStagedChanges: boolean): Promise<string> => {
-	const staged = useStagedChanges ? '--staged' : ''
-	const diff = await git(`git diff --unified=0 --no-color ${staged} -- "${file}"`, path)
+	const diff = await git(['diff', '--unified=0', '--no-color', ...(useStagedChanges ? ['--staged'] : []), '--', file], path)
 	return diff.slice(0, MAX_DIFF_LENGTH)
 }
 
 const hasStagedChanges = async (path: string): Promise<boolean> => {
-	const output = await git('git diff --staged --name-only', path)
+	const output = await git(['diff', '--staged', '--name-only'], path)
 	return output.length > 0
 }
 
@@ -64,8 +63,7 @@ export class VoidSCMService implements IVoidSCMService {
 
 	async gitStat(path: string): Promise<string> {
 		const useStagedChanges = await hasStagedChanges(path)
-		const staged = useStagedChanges ? '--staged' : ''
-		return git(`git diff --stat ${staged}`, path)
+		return git(['diff', '--stat', ...(useStagedChanges ? ['--staged'] : [])], path)
 	}
 
 	async gitSampledDiffs(path: string): Promise<string> {
@@ -79,16 +77,16 @@ export class VoidSCMService implements IVoidSCMService {
 	}
 
 	gitBranch(path: string): Promise<string> {
-		return git('git branch --show-current', path)
+		return git(['branch', '--show-current'], path)
 	}
 
 	gitLog(path: string): Promise<string> {
-		return git('git log --pretty=format:"%h|%s|%ad" --date=short --no-merges -n 5', path)
+		return git(['log', '--pretty=format:%h|%s|%ad', '--date=short', '--no-merges', '-n', '5'], path)
 	}
 
 	async gitStatus(pathStr: string): Promise<{ file: string; status: string }[]> {
 		try {
-			const output = await git('git status --porcelain', pathStr);
+			const output = await git(['status', '--porcelain'], pathStr);
 			if (!output) return [];
 			return output.split('\n').filter(Boolean).map(line => {
 				const statusCode = line.slice(0, 2);
@@ -107,7 +105,7 @@ export class VoidSCMService implements IVoidSCMService {
 
 	async gitDiff(pathStr: string, file: string): Promise<string> {
 		try {
-			return await git(`git diff HEAD -- "${file}"`, pathStr);
+			return await git(['diff', 'HEAD', '--', file], pathStr);
 		} catch {
 			try {
 				const content = await fs.promises.readFile(path.join(pathStr, file), 'utf8');
@@ -121,11 +119,11 @@ export class VoidSCMService implements IVoidSCMService {
 	async gitDiscard(pathStr: string, file?: string): Promise<void> {
 		try {
 			if (file) {
-				await exec(`git checkout HEAD -- "${file}"`, { cwd: pathStr }).catch(err => console.warn(`[VoidSCM] checkout failed for ${file}:`, err));
-				await exec(`git clean -fd -- "${file}"`, { cwd: pathStr }).catch(err => console.warn(`[VoidSCM] clean failed for ${file}:`, err));
+				await git(['checkout', 'HEAD', '--', file], pathStr).catch(err => console.warn(`[VoidSCM] checkout failed for ${file}:`, err));
+				await git(['clean', '-fd', '--', file], pathStr).catch(err => console.warn(`[VoidSCM] clean failed for ${file}:`, err));
 			} else {
-				await exec('git reset --hard HEAD', { cwd: pathStr });
-				await exec('git clean -fd', { cwd: pathStr });
+				await git(['reset', '--hard', 'HEAD'], pathStr);
+				await git(['clean', '-fd'], pathStr);
 			}
 		} catch (err) {
 			console.error('[VoidSCM] Error in gitDiscard:', err);
@@ -134,7 +132,7 @@ export class VoidSCMService implements IVoidSCMService {
 
 	async gitAdd(pathStr: string, file: string): Promise<void> {
 		try {
-			await git(`git add "${file}"`, pathStr);
+			await git(['add', '--', file], pathStr);
 		} catch (err) {
 			console.error('[VoidSCM] Error in gitAdd:', err);
 		}
@@ -142,27 +140,11 @@ export class VoidSCMService implements IVoidSCMService {
 
 	async gitCommit(pathStr: string, message: string): Promise<void> {
 		try {
-			await exec('git add -A', { cwd: pathStr });
-			await exec(`git commit -m "${message}"`, { cwd: pathStr });
+			await git(['add', '-A'], pathStr);
+			await git(['commit', '-m', message], pathStr);
 		} catch (err) {
 			console.error('[VoidSCM] Error in gitCommit:', err);
 			throw err;
-		}
-	}
-
-	async gitGetOriginalFile(pathStr: string, file: string): Promise<string> {
-		try {
-			const tmpDir = path.join(pathStr, '.forge', 'tmp');
-			if (!fs.existsSync(tmpDir)) {
-				fs.mkdirSync(tmpDir, { recursive: true });
-			}
-			const content = await git(`git show HEAD:"${file}"`, pathStr).catch(err => { console.warn(`[VoidSCM] git show HEAD failed for ${file}:`, err); return ''; });
-			const tempFilePath = path.join(tmpDir, `${Date.now()}-${file.replace(/[\/\\]/g, '_')}`);
-			await fs.promises.writeFile(tempFilePath, content, 'utf8');
-			return tempFilePath;
-		} catch (err) {
-			console.error('[VoidSCM] Error in gitGetOriginalFile:', err);
-			return '';
 		}
 	}
 }

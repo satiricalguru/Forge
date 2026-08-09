@@ -15,7 +15,8 @@ export class LMStudioProvider extends BaseHttpProvider {
 	readonly displayName = 'LM Studio';
 	readonly defaultEndpoint = 'http://localhost:1234';
 
-	private static _probedModelsMap = new Map<string, any>();
+	private static readonly _probedModelsMap = new Map<string, any>();
+	private static readonly MAX_CACHED_MODELS = 256;
 
 	override capabilitiesFor(modelId: string): ModelCapabilities {
 		const cacheKey = `${this.endpoint()}::${modelId}`;
@@ -28,7 +29,7 @@ export class LMStudioProvider extends BaseHttpProvider {
 
 			return {
 				supportsTools,
-				supportsFIM: false,
+				supportsFIM: true,
 				supportsReasoning,
 				supportsVision: isVision,
 				supportsSystemMessage: true,
@@ -46,7 +47,7 @@ export class LMStudioProvider extends BaseHttpProvider {
 			const json: { data?: any[] } = await res.json();
 			const data = json.data ?? [];
 			for (const m of data) {
-				LMStudioProvider._probedModelsMap.set(`${ep}::${m.id}`, m);
+				this._cacheModel(ep, m.id, m);
 			}
 			return data.map(m => ({ id: m.id, raw: m }));
 		} catch (e) {
@@ -54,9 +55,25 @@ export class LMStudioProvider extends BaseHttpProvider {
 			try {
 				const res = await localFetch(`${ep}/v1/models`, { token, timeoutMs: 2_000 });
 				const json: { data?: { id: string }[] } = await res.json();
-				return (json.data ?? []).map(m => ({ id: m.id, raw: m }));
+				const data = json.data ?? [];
+				for (const m of data) {
+					this._cacheModel(ep, m.id, m);
+				}
+				return data.map(m => ({ id: m.id, raw: m }));
 			} catch (fallbackErr) {
 				return [];
+			}
+		}
+	}
+
+	private _cacheModel(endpoint: string, modelId: string, raw: any): void {
+		const cacheKey = `${endpoint}::${modelId}`;
+		LMStudioProvider._probedModelsMap.set(cacheKey, raw);
+		if (LMStudioProvider._probedModelsMap.size > LMStudioProvider.MAX_CACHED_MODELS) {
+			// drop the oldest entries (Map preserves insertion order)
+			for (const key of LMStudioProvider._probedModelsMap.keys()) {
+				if (LMStudioProvider._probedModelsMap.size <= LMStudioProvider.MAX_CACHED_MODELS) break;
+				LMStudioProvider._probedModelsMap.delete(key);
 			}
 		}
 	}
@@ -68,7 +85,6 @@ export class LMStudioProvider extends BaseHttpProvider {
 			messages: req.messages,
 			stream: true,
 		};
-		console.log('=== LM STUDIO CHAT REQUEST MESSAGES ===', JSON.stringify(req.messages, null, 2));
 		if (req.tools) body.tools = req.tools;
 
 		const handle = await streamSSE(
@@ -76,8 +92,10 @@ export class LMStudioProvider extends BaseHttpProvider {
 			body,
 			req.signal,
 			(obj) => {
-				const o = obj as { choices?: { delta?: { content?: string; tool_calls?: { id?: string; function?: { name?: string; arguments?: string } }[] } }[] };
+				const o = obj as { choices?: { delta?: { content?: string; tool_calls?: { id?: string; function?: { name?: string; arguments?: string } }[]; reasoning_content?: string; reasoning?: string } }[] };
 				const delta = o.choices?.[0]?.delta;
+				if (delta?.reasoning_content) onChunk({ kind: 'reasoning', text: delta.reasoning_content });
+				else if (delta?.reasoning) onChunk({ kind: 'reasoning', text: delta.reasoning });
 				if (delta?.content) onChunk({ kind: 'text', text: delta.content });
 				if (delta?.tool_calls) {
 					for (const tc of delta.tool_calls) {

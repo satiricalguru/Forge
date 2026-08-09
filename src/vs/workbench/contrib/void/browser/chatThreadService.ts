@@ -320,6 +320,10 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	readonly streamState: ThreadStreamState = {}
 	state: ThreadsState // allThreads is persisted, currentThread is not
 
+	// per-thread promises serializing .forge/sessions read-modify-write so
+	// concurrent saves can't clobber metadata (and deletes wait for pending saves)
+	private readonly _sessionSaveQueues: { [threadId: string]: Promise<void> } = {}
+
 	// used in checkpointing
 	// private readonly _userModifiedFilesToCheckInCheckpoints = new LRUCache<string, null>(50)
 
@@ -476,74 +480,89 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		return (hashVal >>> 0).toString(16);
 	}
 
-	private async _saveThreadToForgeSessions(thread: ThreadType) {
-		try {
-			const workspace = this._workspaceContextService.getWorkspace();
-			const workspacePath = thread.workspacePath || workspace.folders[0]?.uri.fsPath || 'empty';
-			
-			let hashVal = 5381;
-			for (let i = 0; i < workspacePath.length; i++) {
-				hashVal = (hashVal * 33) ^ workspacePath.charCodeAt(i);
+	private _saveThreadToForgeSessions(thread: ThreadType): Promise<void> {
+		// serialize read-modify-write per thread so concurrent saves (streaming
+		// updates) can't clobber metadata written by SessionRegistryMainService
+		const run = async () => {
+			try {
+				const workspace = this._workspaceContextService.getWorkspace();
+				const workspacePath = thread.workspacePath || workspace.folders[0]?.uri.fsPath || 'empty';
+				
+				let hashVal = 5381;
+				for (let i = 0; i < workspacePath.length; i++) {
+					hashVal = (hashVal * 33) ^ workspacePath.charCodeAt(i);
+				}
+				const workspaceHash = (hashVal >>> 0).toString(16);
+
+				const userHome = this._pathService.userHome({ preferLocal: true });
+				const sessionsDirURI = joinPath(userHome, '.forge', 'sessions', workspaceHash);
+				const sessionFileURI = joinPath(sessionsDirURI, `${thread.id}.json`);
+
+				// Read existing file if any, to preserve metadata updated by SessionRegistryMainService
+				let existingJSON: any = {};
+				if (await this._fileService.exists(sessionFileURI)) {
+					try {
+						const fileContent = await this._fileService.readFile(sessionFileURI);
+						existingJSON = JSON.parse(fileContent.value.toString()) || {};
+					} catch { /* ignore if corrupt */ }
+				}
+
+				const firstMessage = thread.messages[0];
+				const firstMessageContent = firstMessage && (firstMessage.role === 'user' || firstMessage.role === 'tool') ? firstMessage.content : '';
+
+				// Reconstruct session data
+				const sessionJSON = {
+					...existingJSON,
+					id: thread.id,
+					title: existingJSON.title || firstMessageContent.slice(0, 50) || 'New Session',
+					createdAt: thread.createdAt || existingJSON.createdAt,
+					lastModified: new Date().toISOString(),
+					agentType: thread.agentType || existingJSON.agentType || 'interactive',
+					isAuto: thread.isAuto !== undefined ? thread.isAuto : (existingJSON.isAuto !== undefined ? existingJSON.isAuto : false),
+					prompt: firstMessageContent || existingJSON.prompt || '',
+					messages: thread.messages,
+					workspacePath: workspacePath
+				};
+
+				await this._fileService.createFolder(sessionsDirURI).catch(() => { /* folder may already exist */ });
+				await this._fileService.writeFile(sessionFileURI, VSBuffer.fromString(JSON.stringify(sessionJSON, null, 2)));
+			} catch (err) {
+				console.error('Failed to save thread to .forge/sessions:', err);
 			}
-			const workspaceHash = (hashVal >>> 0).toString(16);
-
-			const userHome = this._pathService.userHome({ preferLocal: true });
-			const sessionsDirURI = joinPath(userHome, '.forge', 'sessions', workspaceHash);
-			const sessionFileURI = joinPath(sessionsDirURI, `${thread.id}.json`);
-
-			// Read existing file if any, to preserve metadata updated by SessionRegistryMainService
-			let existingJSON: any = {};
-			if (await this._fileService.exists(sessionFileURI)) {
-				try {
-					const fileContent = await this._fileService.readFile(sessionFileURI);
-					existingJSON = JSON.parse(fileContent.value.toString()) || {};
-				} catch { /* ignore if corrupt */ }
-			}
-
-			const firstMessage = thread.messages[0];
-			const firstMessageContent = firstMessage && (firstMessage.role === 'user' || firstMessage.role === 'tool') ? firstMessage.content : '';
-
-			// Reconstruct session data
-			const sessionJSON = {
-				...existingJSON,
-				id: thread.id,
-				title: existingJSON.title || firstMessageContent.slice(0, 50) || 'New Session',
-				createdAt: thread.createdAt || existingJSON.createdAt,
-				lastModified: new Date().toISOString(),
-				agentType: thread.agentType || existingJSON.agentType || 'interactive',
-				isAuto: thread.isAuto !== undefined ? thread.isAuto : (existingJSON.isAuto !== undefined ? existingJSON.isAuto : false),
-				prompt: firstMessageContent || existingJSON.prompt || '',
-				messages: thread.messages,
-				workspacePath: workspacePath
-			};
-
-			await this._fileService.createFolder(sessionsDirURI).catch(() => { /* folder may already exist */ });
-			await this._fileService.writeFile(sessionFileURI, VSBuffer.fromString(JSON.stringify(sessionJSON, null, 2)));
-		} catch (err) {
-			console.error('Failed to save thread to .forge/sessions:', err);
-		}
+		};
+		const prev = this._sessionSaveQueues[thread.id] ?? Promise.resolve();
+		const next = prev.then(run, run);
+		this._sessionSaveQueues[thread.id] = next.catch(() => { /* errors handled inside `run` */ });
+		return next;
 	}
 
-	private async _deleteThreadFromForgeSessions(threadId: string) {
-		try {
-			const thread = this.state.allThreads[threadId];
-			const workspace = this._workspaceContextService.getWorkspace();
-			const workspacePath = thread?.workspacePath || workspace.folders[0]?.uri.fsPath || 'empty';
-			
-			let hashVal = 5381;
-			for (let i = 0; i < workspacePath.length; i++) {
-				hashVal = (hashVal * 33) ^ workspacePath.charCodeAt(i);
-			}
-			const workspaceHash = (hashVal >>> 0).toString(16);
+	private _deleteThreadFromForgeSessions(threadId: string): Promise<void> {
+		const run = async () => {
+			try {
+				const thread = this.state.allThreads[threadId];
+				const workspace = this._workspaceContextService.getWorkspace();
+				const workspacePath = thread?.workspacePath || workspace.folders[0]?.uri.fsPath || 'empty';
+				
+				let hashVal = 5381;
+				for (let i = 0; i < workspacePath.length; i++) {
+					hashVal = (hashVal * 33) ^ workspacePath.charCodeAt(i);
+				}
+				const workspaceHash = (hashVal >>> 0).toString(16);
 
-			const userHome = this._pathService.userHome({ preferLocal: true });
-			const sessionFileURI = joinPath(userHome, '.forge', 'sessions', workspaceHash, `${threadId}.json`);
-			if (await this._fileService.exists(sessionFileURI)) {
-				await this._fileService.del(sessionFileURI);
+				const userHome = this._pathService.userHome({ preferLocal: true });
+				const sessionFileURI = joinPath(userHome, '.forge', 'sessions', workspaceHash, `${threadId}.json`);
+				if (await this._fileService.exists(sessionFileURI)) {
+					await this._fileService.del(sessionFileURI);
+				}
+			} catch (err) {
+				console.error('Failed to delete session file:', err);
 			}
-		} catch (err) {
-			console.error('Failed to delete session file:', err);
-		}
+		};
+		// run after any queued saves for this thread so a pending write can't recreate the file
+		const prev = this._sessionSaveQueues[threadId] ?? Promise.resolve();
+		const next = prev.then(run, run);
+		this._sessionSaveQueues[threadId] = next.catch(() => { /* errors handled inside `run` */ });
+		return next;
 	}
 
 	private async _loadThreadsFromForgeSessions() {
@@ -1578,6 +1597,12 @@ We only need to do it for files that were edited since `from`, ie files between 
 			throw new Error(`Error: editing a message with role !=='user'`)
 		}
 
+		// interrupt an existing stream first so the stale run can't append
+		// ghost messages to the thread after we slice it
+		if (this.streamState[threadId]?.isRunning) {
+			await this.abortRunning(threadId)
+		}
+
 		// get prev and curr selections before clearing the message
 		const currSelns = thread.messages[messageIdx].state.stagingSelections || [] // staging selections for the edited message
 
@@ -1957,6 +1982,14 @@ We only need to do it for files that were edited since `from`, ie files between 
 		this._storeAllThreads(newThreads);
 		void this._deleteThreadFromForgeSessions(threadId);
 		this._setState({ ...this.state, allThreads: newThreads, currentThreadId: nextCurrentThreadId })
+
+		// interrupt any in-flight agent work on the deleted thread and drop its
+		// runtime state so it can't keep streaming or append ghost messages
+		if (this.streamState[threadId]?.isRunning) {
+			void this.abortRunning(threadId).finally(() => { delete this.streamState[threadId] });
+		} else {
+			delete this.streamState[threadId];
+		}
 	}
 
 	duplicateThread(threadId: string) {
