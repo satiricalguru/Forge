@@ -3,6 +3,8 @@
  *  Licensed under the Apache License, Version 2.0. See LICENSE.txt for more information.
  *--------------------------------------------------------------------------------------*/
 
+/* eslint-disable local/code-no-unexternalized-strings */
+
 import { ISkill, ISkillsService } from '../common/skillsService.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -40,20 +42,22 @@ function parseFrontmatter(content: string): { frontmatter: Frontmatter; body: st
 			const key = rawKey.replace(/_([a-z])/g, (_, g) => g.toUpperCase()) as keyof Frontmatter;
 			let val = kvMatch[2].trim();
 
-			if (val.startsWith('[') && val.endsWith(']')) {
-				const parsedList = val.slice(1, -1).split(',').map(s => s.trim().replace(/^['"]|['"]$/g, ''));
+			if (val.startsWith("[") && val.endsWith("]")) {
+				const parsedList = val.slice(1, -1).split(",").map(s => s.trim().replace(/^['"]|['"]$/g, ""));
 				(frontmatter as any)[key] = parsedList;
 				currentKey = null;
 			} else {
-				if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
-				else if (val.startsWith("'") && val.endsWith("'")) val = val.slice(1, -1);
+				const sq = "'";
+				if (val.startsWith("\"") && val.endsWith("\"")) val = val.slice(1, -1);
+				else if (val.startsWith(sq) && val.endsWith(sq)) val = val.slice(1, -1);
 				(frontmatter as any)[key] = val;
 				currentKey = key;
 			}
-		} else if (trimmed.startsWith('-') && currentKey) {
+		} else if (trimmed.startsWith("-") && currentKey) {
 			let val = trimmed.slice(1).trim();
-			if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
-			else if (val.startsWith("'") && val.endsWith("'")) val = val.slice(1, -1);
+			const sq = "'";
+			if (val.startsWith("\"") && val.endsWith("\"")) val = val.slice(1, -1);
+			else if (val.startsWith(sq) && val.endsWith(sq)) val = val.slice(1, -1);
 			if (!Array.isArray(frontmatter[currentKey])) {
 				(frontmatter as any)[currentKey] = [];
 			}

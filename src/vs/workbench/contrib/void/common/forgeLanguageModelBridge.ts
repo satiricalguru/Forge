@@ -43,8 +43,7 @@ import {
 	ILanguageModelChatResponse,
 	ILanguageModelsService,
 } from '../../chat/common/languageModels.js';
-import { ChatRequest, ChatStreamHandle, StreamChunk } from './forgeProviderTypes.js';
-import { ILocalProviderRegistryService } from './forgeProviderTypes.js';
+import { ChatRequest, ChatStreamHandle, StreamChunk, ILocalProviderRegistryService } from './forgeProviderTypes.js';
 import { ProviderName } from './voidSettingsTypes.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────

@@ -368,9 +368,11 @@ export class MCPChannel implements IServerChannel {
 
 			let errorMessage: string;
 
-			if (typeof err === 'object' && err !== null && err['code']) {
-				const code = err.code
-				let codeDescription = ''
+			if (err instanceof Error) {
+				errorMessage = err.message || String(err);
+			} else if (typeof err === 'object' && err !== null && 'code' in err) {
+				const code = (err as any).code;
+				let codeDescription = '';
 				if (code === -32700)
 					codeDescription = 'Parse Error';
 				if (code === -32600)
@@ -381,14 +383,10 @@ export class MCPChannel implements IServerChannel {
 					codeDescription = 'Invalid Parameters';
 				if (code === -32603)
 					codeDescription = 'Internal Error';
-				errorMessage = `${codeDescription}. Full response:\n${JSON.stringify(err, null, 2)}`
-			}
-			// Check if it's an MCP error with a code
-			else if (typeof err === 'string') {
-				// String error
+				errorMessage = `${codeDescription}. Full response:\n${JSON.stringify(err, null, 2)}`;
+			} else if (typeof err === 'string') {
 				errorMessage = err;
 			} else {
-				// Unknown error format
 				errorMessage = JSON.stringify(err, null, 2);
 			}
 

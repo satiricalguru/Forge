@@ -174,10 +174,10 @@ export async function streamSSE(
 					if (buf.length > MAX_STREAM_BUFFER_BYTES) {
 						throw new Error(`SSE stream from ${url} exceeded the maximum buffer size (${MAX_STREAM_BUFFER_BYTES} bytes)`);
 					}
-					const parts = buf.split(/\r?\n\r?\n|\r?\n/).filter(Boolean);
-					buf = parts.pop() ?? '';
-					for (const part of parts) {
-						parsePart(part);
+					const lines = buf.split(/\r?\n/);
+					buf = lines.pop() ?? '';
+					for (const line of lines) {
+						parsePart(line);
 					}
 				}
 				// process any residual partial chunk the final read left behind

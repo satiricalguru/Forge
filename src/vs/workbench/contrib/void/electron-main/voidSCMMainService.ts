@@ -4,8 +4,7 @@
  *--------------------------------------------------------------------------------------*/
 
 import { promisify } from 'util'
-import { execFile as _execFile } from 'child_process'
-import type { ExecFileOptions } from 'child_process'
+import { execFile as _execFile, type ExecFileOptions } from 'child_process'
 import * as path from 'path'
 import * as fs from 'fs'
 import { IVoidSCMService } from '../common/voidSCMTypes.js'
