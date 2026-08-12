@@ -4,23 +4,37 @@
  *--------------------------------------------------------------------------------------*/
 
 import { IHardwareInfo, IHardwareService } from '../common/hardwareService.js';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import * as os from 'os';
+
+const VRAM_PROBE_TIMEOUT_MS = 2500;
 
 function probeVram(): Promise<number | undefined> {
 	return new Promise((resolve) => {
-		exec('nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits', (err, stdout) => {
+		let settled = false;
+		let timeout: ReturnType<typeof setTimeout> | undefined;
+		const settle = (value: number | undefined) => {
+			if (settled) return;
+			settled = true;
+			if (timeout) clearTimeout(timeout);
+			resolve(value);
+		};
+
+		// execFile (no shell) so a rogue binary or environment can't inject
+		// arguments; bounded by a timeout so a hung probe can't block startup
+		const child = execFile('nvidia-smi', ['--query-gpu=memory.total', '--format=csv,noheader,nounits'], (err, stdout) => {
 			if (err || !stdout) {
-				resolve(undefined);
+				settle(undefined);
 				return;
 			}
 			const val = parseInt(stdout.trim(), 10);
-			if (!isNaN(val)) {
-				resolve(val / 1024); // convert MB to GB
-			} else {
-				resolve(undefined);
-			}
+			settle(!isNaN(val) ? val / 1024 : undefined); // convert MB to GB
 		});
+
+		timeout = setTimeout(() => {
+			child.kill();
+			settle(undefined);
+		}, VRAM_PROBE_TIMEOUT_MS);
 	});
 }
 

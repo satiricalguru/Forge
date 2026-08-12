@@ -786,6 +786,9 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		// set parameters of `newAutocompletion` appropriately
 		newAutocompletion.llmPromise = new Promise((resolve, reject) => {
 
+			let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+			const clearTimeoutHandle = () => { if (timeoutHandle) { clearTimeout(timeoutHandle); timeoutHandle = null; } };
+
 			const requestId = this._llmMessageService.sendLLMMessage({
 				messagesType: 'FIMMessage',
 				messages: this._convertToLLMMessageService.prepareFIMMessage({
@@ -800,29 +803,9 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 				overridesOfModel,
 				logging: { loggingName: 'Autocomplete' },
 				onText: () => { }, // unused in FIMMessage
-				// onText: async ({ fullText, newText }) => {
-
-				// 	newAutocompletion.insertText = fullText
-
-				// 	// count newlines in newText
-				// 	const numNewlines = newText.match(/\n|\r\n/g)?.length || 0
-				// 	newAutocompletion._newlineCount += numNewlines
-
-				// 	// if too many newlines, resolve up to last newline
-				// 	if (newAutocompletion._newlineCount > 10) {
-				// 		const lastNewlinePos = fullText.lastIndexOf('\n')
-				// 		newAutocompletion.insertText = fullText.substring(0, lastNewlinePos)
-				// 		resolve(newAutocompletion.insertText)
-				// 		return
-				// 	}
-
-				// 	// if (!getAutocompletionMatchup({ prefix: this._lastPrefix, autocompletion: newAutocompletion })) {
-				// 	// 	reject('LLM response did not match user\'s text.')
-				// 	// }
-				// },
 				onFinalMessage: ({ fullText }) => {
 
-					// console.log('____res: ', JSON.stringify(newAutocompletion.insertText))
+					clearTimeoutHandle()
 
 					newAutocompletion.endTime = Date.now()
 					newAutocompletion.status = 'finished'
@@ -838,17 +821,19 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 
 				},
 				onError: ({ message }) => {
+					clearTimeoutHandle()
 					newAutocompletion.endTime = Date.now()
 					newAutocompletion.status = 'error'
 					reject(message)
 				},
-				onAbort: () => { reject('Aborted autocomplete') },
+				onAbort: () => { clearTimeoutHandle(); reject('Aborted autocomplete') },
 			})
 			newAutocompletion.requestId = requestId
 
-			// if the request hasnt resolved in TIMEOUT_TIME seconds, reject it
-			setTimeout(() => {
+			// if the request hasnt resolved in TIMEOUT_TIME seconds, reject it and abort the stream
+			timeoutHandle = setTimeout(() => {
 				if (newAutocompletion.status === 'pending') {
+					if (requestId) this._llmMessageService.abort(requestId) // stops the underlying stream too
 					reject('Timeout receiving message to LLM.')
 				}
 			}, TIMEOUT_TIME)
@@ -887,6 +872,20 @@ export class AutocompleteService extends Disposable implements IAutocompleteServ
 		// @IContextGatheringService private readonly _contextGatheringService: IContextGatheringService,
 	) {
 		super()
+
+		// drop per-document completion caches when the model is disposed so
+		// closed documents don't keep retaining completions (and their requestIds)
+		this._register(this._modelService.onModelRemoved(model => {
+			const cache = this._autocompletionsOfDocument[model.uri.fsPath];
+			if (cache) {
+				for (const autocompletion of cache.items.values()) {
+					if (autocompletion.status === 'pending' && autocompletion.requestId) {
+						this._llmMessageService.abort(autocompletion.requestId);
+					}
+				}
+				delete this._autocompletionsOfDocument[model.uri.fsPath];
+			}
+		}));
 
 		this._register(this._langFeatureService.inlineCompletionsProvider.register('*', {
 			provideInlineCompletions: async (model, position, context, token) => {

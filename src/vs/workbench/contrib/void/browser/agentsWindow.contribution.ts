@@ -1,6 +1,6 @@
 import { Disposable, toDisposable } from '../../../../base/common/lifecycle.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
-import { INativeWorkbenchEnvironmentService } from '../../../services/environment/electron-sandbox/environmentService.js';
+import { IWorkbenchEnvironmentService } from '../../../services/environment/common/environmentService.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { IWorkbenchLayoutService } from '../../../services/layout/browser/layoutService.js';
 import { mountAgentsWindow } from './react/out/agents-window-tsx/index.js';
@@ -10,12 +10,12 @@ export class AgentsWindowContribution extends Disposable implements IWorkbenchCo
 	static readonly ID = 'workbench.contrib.agentsWindow';
 
 	constructor(
-		@INativeWorkbenchEnvironmentService environmentService: INativeWorkbenchEnvironmentService,
+		@IWorkbenchEnvironmentService environmentService: IWorkbenchEnvironmentService,
 		@IWorkbenchLayoutService layoutService: IWorkbenchLayoutService,
 		@IInstantiationService instantiationService: IInstantiationService
 	) {
 		super();
-		if (environmentService.window?.isAgentsWindow) {
+		if ((environmentService as any).window?.isAgentsWindow) {
 			this.initializeAgentsWindow(layoutService, instantiationService);
 		}
 	}

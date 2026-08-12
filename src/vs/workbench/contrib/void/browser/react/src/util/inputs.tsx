@@ -1025,6 +1025,13 @@ export const VoidSlider = ({
 	className?: string;
 	width?: number;
 }) => {
+	const dragCleanupRef = useRef<(() => void) | null>(null);
+	// on unmount, tear down any in-flight drag listeners so they can't leak
+	useEffect(() => () => {
+		dragCleanupRef.current?.();
+		dragCleanupRef.current = null;
+	}, []);
+
 	// Calculate percentage for position
 	const percentage = ((value - min) / (max - min)) * 100;
 
@@ -1142,12 +1149,19 @@ export const VoidSlider = ({
 								handleThumbDrag(moveEvent, track as Element);
 							};
 
-							const handleMouseUp = () => {
+							const cleanup = () => {
 								document.removeEventListener('mousemove', handleMouseMove);
 								document.removeEventListener('mouseup', handleMouseUp);
 								document.body.style.cursor = '';
 								document.body.style.userSelect = '';
+								dragCleanupRef.current = null;
 							};
+
+							const handleMouseUp = () => {
+								cleanup();
+							};
+
+							dragCleanupRef.current = cleanup;
 
 							document.body.style.userSelect = 'none';
 							document.body.style.cursor = 'grabbing';

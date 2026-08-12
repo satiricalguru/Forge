@@ -88,8 +88,8 @@ const activeURIListeners: Set<(uri: URI | null) => void> = new Set();
 const mcpListeners: Set<() => void> = new Set()
 
 
-// must call this before you can use any of the hooks below
-// this should only be called ONCE! this is the only place you don't need to dispose onDidChange. If you use state.onDidChange anywhere else, make sure to dispose it!
+	// must call this before you can use any of the hooks below
+	// this should only be called ONCE! this is the only place you don't need to dispose onDidChange. If you use state.onDidChange anywhere else, make sure to dispose it!
 let _servicesRegistered = false;
 export const _registerServices = (accessor: ServicesAccessor) => {
 
@@ -202,6 +202,10 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 		)
 	}
 
+
+	// last disposable resets the guard so a later mount re-registers
+	// (listeners were just disposed by the mountFnGenerator)
+	disposables.push(() => { _servicesRegistered = false; })
 
 	return disposables
 }

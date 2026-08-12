@@ -76,6 +76,7 @@ export class LLMMessageChannel implements IServerChannel {
 	// browser uses this to call (see this.channel.call() in llmMessageService.ts for all usages)
 	async call(_: unknown, command: string, params: any): Promise<any> {
 		if (command === 'sendLLMMessage') {
+			if (!params || typeof params.requestId !== 'string') throw new Error('sendLLMMessage: missing requestId');
 			this._callSendLLMMessage(params)
 		}
 		else if (command === 'abort') {
@@ -109,23 +110,34 @@ export class LLMMessageChannel implements IServerChannel {
 			},
 			onFinalMessage: (p) => {
 				this.llmMessageEmitters.onFinalMessage.fire({ requestId, ...p });
+				delete this._infoOfRunningRequest[requestId];
 			},
 			onError: (p) => {
 				console.log('sendLLM: firing err');
 				this.llmMessageEmitters.onError.fire({ requestId, ...p });
+				delete this._infoOfRunningRequest[requestId];
 			},
 			abortRef: this._infoOfRunningRequest[requestId].abortRef,
 		}
 		const p = sendLLMMessage(mainThreadParams);
 		this._infoOfRunningRequest[requestId].waitForSend = p
+		p.finally(() => {
+			// safety net: if neither onFinalMessage nor onError fired (e.g. an
+			// unexpected early return), make sure the entry doesn't leak
+			delete this._infoOfRunningRequest[requestId];
+		});
 	}
 
 	private async _callAbort(params: MainLLMMessageAbortParams) {
 		const { requestId } = params;
-		if (!(requestId in this._infoOfRunningRequest)) return
-		const { waitForSend, abortRef } = this._infoOfRunningRequest[requestId]
-		await waitForSend // wait for the send to finish so we know abortRef was set
-		abortRef?.current?.()
+		if (typeof requestId !== 'string') return;
+		const running = this._infoOfRunningRequest[requestId]
+		if (!running) return
+		// abortRef.current is set synchronously by sendLLMMessage() before it
+		// hits its first await, so we can abort immediately — never wait for the
+		// send promise (it only resolves once the stream finishes; waiting would
+		// deadlock the abort until the generation completes).
+		running.abortRef?.current?.()
 		delete this._infoOfRunningRequest[requestId]
 	}
 
@@ -157,11 +169,16 @@ export class LLMMessageChannel implements IServerChannel {
 
 	private async _callPullOllamaModel(params: MainPullModelParams) {
 		const { modelName, endpoint, requestId } = params;
+		if (typeof modelName !== 'string' || typeof endpoint !== 'string' || typeof requestId !== 'string') {
+			this.pullEmitters.onError.fire({ requestId: typeof requestId === 'string' ? requestId : '', error: 'Invalid pull request params' });
+			return;
+		}
 		try {
 			const res = await fetch(`${endpoint}/api/pull`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ name: modelName, stream: true }),
+				signal: AbortSignal.timeout(30 * 60_000), // pulls of big models can be slow, but don't hang forever
 			});
 
 			if (!res.ok) {
@@ -183,6 +200,11 @@ export class LLMMessageChannel implements IServerChannel {
 				if (done) break;
 
 				buffer += decoder.decode(value, { stream: true });
+				if (buffer.length > 8 * 1024 * 1024) {
+					// cap runaway progress output
+					this.pullEmitters.onError.fire({ requestId, error: 'Pull progress output exceeded the maximum allowed size' });
+					return;
+				}
 				const lines = buffer.split('\n');
 				buffer = lines.pop() || '';
 

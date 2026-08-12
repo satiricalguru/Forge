@@ -91,6 +91,12 @@ export const QuickEditChat = ({
 		editCodeService.removeCtrlKZone({ diffareaid })
 	}, [editCodeService, diffareaid])
 
+	// shared handler so the ref callback can remove/readd it without accumulating
+	const onEscapeKeydown = useCallback((e: KeyboardEvent) => {
+		if (e.key === 'Escape')
+			onX()
+	}, [onX])
+
 	const keybindingString = accessor.get('IKeybindingService').lookupKeybinding(VOID_CTRL_K_ACTION_ID)?.getLabel()
 
 	const chatAreaRef = useRef<HTMLDivElement | null>(null)
@@ -110,13 +116,17 @@ export const QuickEditChat = ({
 				className='px-1'
 				initValue={initText}
 				ref={useCallback((r: HTMLTextAreaElement | null) => {
+					// guard against re-invocation: remove any previously attached
+					// listener so we can never accumulate duplicate keydown handlers
+					const prev = textAreaRef.current
+					if (prev && prev !== r) {
+						prev.removeEventListener('keydown', onEscapeKeydown)
+					}
+					r?.removeEventListener('keydown', onEscapeKeydown)
 					textAreaRef.current = r
 					textAreaRef_(r)
-					r?.addEventListener('keydown', (e) => {
-						if (e.key === 'Escape')
-							onX()
-					})
-				}, [textAreaRef_, onX])}
+					r?.addEventListener('keydown', onEscapeKeydown)
+				}, [textAreaRef_, onEscapeKeydown])}
 				fnsRef={textAreaFnsRef}
 				placeholder="Enter instructions..."
 				onChangeText={useCallback((newStr: string) => {

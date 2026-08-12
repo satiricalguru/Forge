@@ -38,7 +38,7 @@ export interface IWindowsMainService {
 
 	open(openConfig: IOpenConfiguration): Promise<ICodeWindow[]>;
 	openEmptyWindow(openConfig: IOpenEmptyConfiguration, options?: IOpenEmptyWindowOptions): Promise<ICodeWindow[]>;
-	openAgentsWindow(openConfig: IOpenConfiguration, folderUri?: URI, sessionResource?: URI): Promise<ICodeWindow[]>;
+	openAgentsWindow(openConfig: IOpenConfiguration): Promise<ICodeWindow[]>;
 	openExtensionDevelopmentHostWindow(extensionDevelopmentPath: string[], openConfig: IOpenConfiguration): Promise<ICodeWindow[]>;
 
 	openExistingWindow(window: ICodeWindow, openConfig: IOpenConfiguration): void;

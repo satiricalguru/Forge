@@ -128,10 +128,12 @@ export const forgeSendChat = async (params: SendChatParams): Promise<void> => {
 
 	let fullReasoningSoFar = '';
 	let fullTextSoFar = '';
-	let toolName = '';
-	let toolId = '';
-	let toolParamsStr = '';
+	// tool calls are accumulated per id so a response with multiple parallel
+	// tool calls doesn't concatenate names/args into garbage
+	const toolCalls = new Map<string, { id: string; name: string; paramsStr: string }>();
 	let streamError: string | null = null;
+
+	const currentToolCall = () => toolCalls.values().next().value as { id: string; name: string; paramsStr: string } | undefined;
 
 	try {
 		const handle = await provider.streamChat({
@@ -154,14 +156,20 @@ export const forgeSendChat = async (params: SendChatParams): Promise<void> => {
 				fullReasoningSoFar += chunk.text;
 			}
 			if (chunk.kind === 'tool_call') {
-				toolName += chunk.name ?? '';
-				toolParamsStr += chunk.argumentsDelta ?? '';
-				toolId += chunk.id ?? '';
+				const key = chunk.id ?? '0';
+				let acc = toolCalls.get(key);
+				if (!acc) {
+					acc = { id: key, name: '', paramsStr: '' };
+					toolCalls.set(key, acc);
+				}
+				acc.name += chunk.name ?? '';
+				acc.paramsStr += chunk.argumentsDelta ?? '';
 			}
+			const tc = currentToolCall();
 			onText({
 				fullText: fullTextSoFar,
 				fullReasoning: fullReasoningSoFar,
-				toolCall: !toolName ? undefined : { name: toolName, rawParams: {}, isDone: false, doneParams: [], id: toolId },
+				toolCall: !tc ? undefined : { name: tc.name, rawParams: {}, isDone: false, doneParams: [], id: tc.id },
 			});
 		});
 
@@ -172,13 +180,29 @@ export const forgeSendChat = async (params: SendChatParams): Promise<void> => {
 			return;
 		}
 
-		if (!fullTextSoFar && !fullReasoningSoFar && !toolName) {
+		if (!fullTextSoFar && !fullReasoningSoFar && toolCalls.size === 0) {
 			onError({ message: 'Forge: Response from model was empty.', fullError: null });
 			return;
 		}
 
-		const toolCall = rawToolCallObjOfParamsStr(toolName, toolParamsStr, toolId);
-		const toolCallObj = toolCall ? { toolCall } : {};
+		// parse each accumulated tool call; surface a recoverable error if one
+		// started but couldn't be parsed (e.g. truncated by max_tokens) instead
+		// of silently delivering a mangled tool call / plain-text reply
+		let toolCallObj = {};
+		if (toolCalls.size > 0) {
+			for (const tc of toolCalls.values()) {
+				if (!tc.name || !tc.paramsStr) continue;
+				const parsed = rawToolCallObjOfParamsStr(tc.name, tc.paramsStr, tc.id);
+				if (parsed) {
+					toolCallObj = { toolCall: parsed };
+					break;
+				}
+			}
+			if (toolCalls.size > 0 && Object.keys(toolCallObj).length === 0) {
+				onError({ message: 'Forge: model started a tool call but its arguments were incomplete or malformed.', fullError: null });
+				return;
+			}
+		}
 		onFinalMessage({ fullText: fullTextSoFar, fullReasoning: fullReasoningSoFar, anthropicReasoning: null, ...toolCallObj });
 	} catch (error) {
 		onError({ message: error + '', fullError: error instanceof Error ? error : null });

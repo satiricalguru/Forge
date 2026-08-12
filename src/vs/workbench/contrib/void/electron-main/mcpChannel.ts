@@ -326,19 +326,18 @@ export class MCPChannel implements IServerChannel {
 			arguments: params
 		})
 		const { content } = response as CallToolResult
-		const returnValue = content[0]
 
-		if (returnValue.type === 'text') {
-			// handle text response
-
+		// content may legally be an empty array (MCP spec) — never index [0] blindly
+		const textContent = Array.isArray(content) ? content.find(c => c?.type === 'text') : undefined
+		if (textContent && typeof textContent.text === 'string') {
 			if (response.isError) {
-				throw new Error(`Tool call error: ${returnValue.text}`)
+				throw new Error(`Tool call error: ${textContent.text}`)
 			}
 
 			// handle success
 			return {
 				event: 'text',
-				text: returnValue.text,
+				text: textContent.text,
 				toolName,
 				serverName,
 			}
@@ -356,7 +355,8 @@ export class MCPChannel implements IServerChannel {
 		// 	// handle resource response
 		// }
 
-		throw new Error(`Tool call error: We don\'t support ${returnValue.type} tool response yet for tool ${toolName} on server ${serverName}`)
+		const unsupportedType = Array.isArray(content) && content.length === 0 ? 'empty content array' : (content?.[0]?.type ?? 'non-text')
+		throw new Error(`Tool call error: We don\'t support ${unsupportedType} tool response yet for tool ${toolName} on server ${serverName}`)
 	}
 
 	// tool call error wrapper
@@ -368,9 +368,11 @@ export class MCPChannel implements IServerChannel {
 
 			let errorMessage: string;
 
-			if (typeof err === 'object' && err !== null && err['code']) {
-				const code = err.code
-				let codeDescription = ''
+			if (err instanceof Error) {
+				errorMessage = err.message || String(err);
+			} else if (typeof err === 'object' && err !== null && 'code' in err) {
+				const code = (err as any).code;
+				let codeDescription = '';
 				if (code === -32700)
 					codeDescription = 'Parse Error';
 				if (code === -32600)
@@ -381,14 +383,10 @@ export class MCPChannel implements IServerChannel {
 					codeDescription = 'Invalid Parameters';
 				if (code === -32603)
 					codeDescription = 'Internal Error';
-				errorMessage = `${codeDescription}. Full response:\n${JSON.stringify(err, null, 2)}`
-			}
-			// Check if it's an MCP error with a code
-			else if (typeof err === 'string') {
-				// String error
+				errorMessage = `${codeDescription}. Full response:\n${JSON.stringify(err, null, 2)}`;
+			} else if (typeof err === 'string') {
 				errorMessage = err;
 			} else {
-				// Unknown error format
 				errorMessage = JSON.stringify(err, null, 2);
 			}
 

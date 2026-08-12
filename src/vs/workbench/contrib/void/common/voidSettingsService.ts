@@ -444,9 +444,9 @@ class VoidSettingsService extends Disposable implements IVoidSettingsService {
 
 		// hooks
 		if (featureName === 'Chat') {
-			// When Chat model changes, update synced features
-			this._onUpdate_syncApplyToChat()
-			this._onUpdate_syncSCMToChat()
+			// When Chat model changes, update synced features (but only the ones sync is enabled for)
+			if (this.state.globalSettings.syncApplyToChat) this._onUpdate_syncApplyToChat()
+			if (this.state.globalSettings.syncSCMToChat) this._onUpdate_syncSCMToChat()
 		}
 	}
 

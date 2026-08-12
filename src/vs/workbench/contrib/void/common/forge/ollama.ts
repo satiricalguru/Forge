@@ -30,7 +30,9 @@ export class OllamaProvider extends BaseHttpProvider {
 	readonly displayName = 'Ollama';
 	readonly defaultEndpoint = 'http://127.0.0.1:11434';
 
-	private static _probedModelsMap = new Map<string, any>();
+	// keyed by `${endpoint}::${modelId}` so endpoint changes never collide
+	private static readonly _probedModelsMap = new Map<string, any>();
+	private static readonly MAX_CACHED_MODELS = 256;
 
 	override capabilitiesFor(modelId: string): ModelCapabilities {
 		const cacheKey = `${this.endpoint()}::${modelId}`;
@@ -110,14 +112,26 @@ export class OllamaProvider extends BaseHttpProvider {
 					details: { ...m.details, ...showJson.details, ...(ctxLen ? { context_length: ctxLen } : {}) },
 					context_length: ctxLen
 				};
-				OllamaProvider._probedModelsMap.set(`${ep}::${m.name}`, mergedRaw);
+				this._cacheModel(ep, m.name, mergedRaw);
 				return { id: m.name, raw: mergedRaw };
 			} catch {
-				OllamaProvider._probedModelsMap.set(`${ep}::${m.name}`, m);
+				this._cacheModel(ep, m.name, m);
 				return { id: m.name, raw: m };
 			}
 		}));
 		return detailedModels;
+	}
+
+	private _cacheModel(endpoint: string, modelId: string, raw: any): void {
+		const cacheKey = `${endpoint}::${modelId}`;
+		OllamaProvider._probedModelsMap.set(cacheKey, raw);
+		if (OllamaProvider._probedModelsMap.size > OllamaProvider.MAX_CACHED_MODELS) {
+			// drop the oldest entries (Map preserves insertion order)
+			for (const key of OllamaProvider._probedModelsMap.keys()) {
+				if (OllamaProvider._probedModelsMap.size <= OllamaProvider.MAX_CACHED_MODELS) break;
+				OllamaProvider._probedModelsMap.delete(key);
+			}
+		}
 	}
 
 	override async streamChat(req: ChatRequest, onChunk: (c: StreamChunk) => void): Promise<ChatStreamHandle> {
