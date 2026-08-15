@@ -143,7 +143,8 @@ export class OllamaProvider extends BaseHttpProvider {
 			...(req.tools ? { tools: req.tools.map(normalizeTool) } : {}),
 		};
 		const handle = await streamSSE(`${ep}/api/chat`, body, req.signal, (obj) => {
-			const o = obj as { message?: { content?: string; tool_calls?: { id?: string; function?: { name?: string; arguments?: unknown } }[] }; done?: boolean; done_reason?: string };
+			const o = obj as { message?: { content?: string; thinking?: string; tool_calls?: { id?: string; function?: { name?: string; arguments?: unknown } }[] }; done?: boolean; done_reason?: string };
+			if (o.message?.thinking) onChunk({ kind: 'reasoning', text: o.message.thinking });
 			if (o.message?.content) onChunk({ kind: 'text', text: o.message.content });
 			if (o.message?.tool_calls) {
 				for (const tc of o.message.tool_calls) {

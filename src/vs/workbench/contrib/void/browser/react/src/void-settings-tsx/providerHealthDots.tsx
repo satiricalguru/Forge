@@ -19,6 +19,7 @@ interface IProps {
  * Used in the status bar / settings pane.
  */
 export const ProviderHealthDots: React.FC<IProps> = ({ registry, service }) => {
+	if (!registry || !service) return null;
 	const health = useAllProviderHealth(service);
 	const providers = registry.all();
 

@@ -193,15 +193,8 @@ export class SessionRegistryMainService implements ISessionRegistryService {
 						const raw = await fs.promises.readFile(path.join(wsDirPath, file), 'utf8');
 						const json = JSON.parse(raw);
 						if (json.id && this._isValidId(json.id)) {
-							// Validate the filename matches the id so a skewed
-							// file can't be registered under the wrong key
 							if (file !== `${json.id}.json`) continue;
 							seenIds.add(json.id);
-							if (!json.messages || json.messages.length === 0) {
-								// Delete empty session file to clean up disk
-								fs.promises.unlink(path.join(wsDirPath, file)).catch(() => {});
-								continue;
-							}
 							const createdAtTime = json.createdAt ? new Date(json.createdAt).getTime() : Date.now();
 							const updatedAtTime = json.updatedAt ?? (json.lastModified ? new Date(json.lastModified).getTime() : createdAtTime);
 							

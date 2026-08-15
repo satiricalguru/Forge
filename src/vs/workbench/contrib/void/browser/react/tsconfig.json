@@ -11,6 +11,8 @@
 		"moduleResolution": "NodeNext",
 		"module": "NodeNext",
 		"esModuleInterop": true,
+		"experimentalDecorators": true,
+		"useDefineForClassFields": false
 	},
 	"include": [
 		// this is just for type checking, so src/ is the correct dir

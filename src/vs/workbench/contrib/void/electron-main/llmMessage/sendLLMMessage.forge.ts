@@ -65,8 +65,12 @@ const forgeTools = (chatMode: ChatMode | null, mcpTools: InternalToolInfo[] | un
 
 const rawToolCallObjOfParamsStr = (name: string, toolParamsStr: string, id: string): RawToolCallObj | null => {
 	let input: unknown;
-	try { input = JSON.parse(toolParamsStr); }
-	catch { return null; }
+	if (!toolParamsStr || toolParamsStr.trim() === '') {
+		input = {};
+	} else {
+		try { input = JSON.parse(toolParamsStr); }
+		catch { return null; }
+	}
 	if (input === null || typeof input !== 'object') return null;
 	const rawParams: RawToolParamsObj = input as RawToolParamsObj;
 	return { id, name, rawParams, doneParams: Object.keys(rawParams), isDone: true };
@@ -191,7 +195,7 @@ export const forgeSendChat = async (params: SendChatParams): Promise<void> => {
 		let toolCallObj = {};
 		if (toolCalls.size > 0) {
 			for (const tc of toolCalls.values()) {
-				if (!tc.name || !tc.paramsStr) continue;
+				if (!tc.name) continue;
 				const parsed = rawToolCallObjOfParamsStr(tc.name, tc.paramsStr, tc.id);
 				if (parsed) {
 					toolCallObj = { toolCall: parsed };

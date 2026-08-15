@@ -702,10 +702,12 @@ export const AgentsWindow = () => {
   useEffect(() => {
     try {
       const skillsService = accessor.get('ISkillsService');
-      skillsService.getSkills([]).then((s: any[]) => {
-        setSkillsCount(s.length);
-        setSkillsList(s);
-      }).catch(() => {});
+      if (skillsService) {
+        skillsService.getSkills([]).then((s: any[]) => {
+          setSkillsCount(s.length);
+          setSkillsList(s);
+        }).catch(() => {});
+      }
     } catch {}
   }, []);
   const mcpCount = Object.keys(mcpState?.mcpServerOfName || {}).length;

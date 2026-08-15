@@ -13,12 +13,13 @@ import { ILocalProviderRegistryService, ProviderHealth } from '../../../../../..
  * Re-renders whenever that provider's health changes.
  */
 export function useProviderHealth(
-	service: ILocalProviderRegistryService,
+	service: ILocalProviderRegistryService | null | undefined,
 	providerId: string,
 ): ProviderHealth {
-	const [health, setHealth] = useState<ProviderHealth>(() => service.getHealth(providerId));
+	const [health, setHealth] = useState<ProviderHealth>(() => service ? service.getHealth(providerId) : { status: 'unknown' });
 
 	useEffect(() => {
+		if (!service) return;
 		const store = new DisposableStore();
 		store.add(service.onDidChangeHealth(e => {
 			if (e.providerId === providerId) setHealth(e.health);
@@ -35,10 +36,11 @@ export function useProviderHealth(
  * Subscribe to the full health snapshot — used by the status-bar/health-dots strip.
  * Re-renders on any provider health change.
  */
-export function useAllProviderHealth(service: ILocalProviderRegistryService): ReadonlyMap<string, ProviderHealth> {
-	const [snapshot, setSnapshot] = useState<ReadonlyMap<string, ProviderHealth>>(() => new Map(service.getAllHealth()));
+export function useAllProviderHealth(service: ILocalProviderRegistryService | null | undefined): ReadonlyMap<string, ProviderHealth> {
+	const [snapshot, setSnapshot] = useState<ReadonlyMap<string, ProviderHealth>>(() => service ? new Map(service.getAllHealth()) : new Map());
 
 	useEffect(() => {
+		if (!service) return;
 		const store = new DisposableStore();
 		store.add(service.onDidChangeHealth(() => {
 			setSnapshot(new Map(service.getAllHealth()));

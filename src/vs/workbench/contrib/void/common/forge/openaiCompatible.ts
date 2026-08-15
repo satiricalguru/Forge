@@ -63,8 +63,9 @@ export class OpenAICompatibleProvider extends BaseHttpProvider {
 		const ep = this.endpoint();
 		const url = this._url(ep, this.healthPath);
 		const res = await localFetch(url, { token, timeoutMs: 2_000 });
-		const json: { data?: { id: string }[] } = await res.json();
-		return (json.data ?? []).map(m => ({ id: m.id, raw: m }));
+		const json: any = await res.json();
+		const items: { id?: string; name?: string }[] = Array.isArray(json) ? json : (json?.data ?? json?.models ?? []);
+		return items.map(m => ({ id: m.id || m.name || '', raw: m })).filter(m => m.id !== '');
 	}
 
 	override async streamChat(req: ChatRequest, onChunk: (c: StreamChunk) => void): Promise<ChatStreamHandle> {

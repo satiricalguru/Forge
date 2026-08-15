@@ -22,14 +22,8 @@ const MAX_DIFF_LENGTH = 8000
 const MAX_DIFF_FILES = 10
 
 const git = async (args: string[], cwdPath: string, options?: ExecFileOptions): Promise<string> => {
-	const { stdout, stderr } = await execFile('git', args, { cwd: cwdPath, ...options })
-	if (stderr) {
-		// git checkout or show might output warnings to stderr, but if stdout has content we still treat it as success
-		if (!stdout) {
-			throw new Error(stderr)
-		}
-	}
-	return stdout.trim()
+	const { stdout } = await execFile('git', args, { cwd: cwdPath, ...options })
+	return (stdout || '').trim()
 }
 
 const getNumStat = async (path: string, useStagedChanges: boolean): Promise<NumStat[]> => {

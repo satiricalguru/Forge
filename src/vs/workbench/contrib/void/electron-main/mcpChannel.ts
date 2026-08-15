@@ -277,24 +277,27 @@ export class MCPChannel implements IServerChannel {
 
 
 	private async _toggleMCPServer(serverName: string, isOn: boolean) {
-		const prevServer = this.infoOfClientId[serverName]?.mcpServer
+		const existingInfo = this.infoOfClientId[serverName];
+		if (!existingInfo) return;
+		const prevServer = existingInfo.mcpServer;
 		// Handle turning on the server
 		if (isOn) {
-			// this.mcpEmitters.serverEvent.onChangeLoading.fire(getLoadingServerObject(serverName, isOn))
-			const clientInfo = await this._createClientUnsafe(this.infoOfClientId[serverName].mcpServerEntryJSON, serverName, isOn)
+			const clientInfo = await this._createClient(existingInfo.mcpServerEntryJSON, serverName, isOn);
+			this.infoOfClientId[serverName] = clientInfo;
 			this.mcpEmitters.serverEvent.onUpdate.fire({
 				response: {
 					name: serverName,
 					newServer: clientInfo.mcpServer,
 					prevServer: prevServer,
 				}
-			})
+			});
 		}
 		// Handle turning off the server
 		else {
-			// this.mcpEmitters.serverEvent.onChangeLoading.fire(getLoadingServerObject(serverName, isOn))
-			this._closeClient(serverName)
-			delete this.infoOfClientId[serverName]._client
+			await this._closeClient(serverName);
+			if (this.infoOfClientId[serverName]) {
+				delete this.infoOfClientId[serverName]._client;
+			}
 
 			this.mcpEmitters.serverEvent.onUpdate.fire({
 				response: {
@@ -308,7 +311,7 @@ export class MCPChannel implements IServerChannel {
 					},
 					prevServer: prevServer,
 				}
-			})
+			});
 		}
 	}
 

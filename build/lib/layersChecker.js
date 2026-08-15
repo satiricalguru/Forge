@@ -103,6 +103,15 @@ const RULES = [
         target: '**/vs/**/test/**',
         skip: true // -> skip all test files
     },
+    // React bundled output & generated source: skip
+    {
+        target: '**/vs/**/react/out/**',
+        skip: true
+    },
+    {
+        target: '**/vs/**/react/src2/**',
+        skip: true
+    },
     // Common: vs/base/common/platform.ts
     {
         target: '**/vs/base/common/platform.ts',
@@ -214,6 +223,36 @@ const RULES = [
         disallowedTypes: NATIVE_TYPES,
         disallowedDefinitions: [
             '@types/node' // no node.js
+        ]
+    },
+    // Void contrib (uses IPC proxy services to Electron main)
+    {
+        target: '**/vs/workbench/contrib/void/electron-main/**',
+        allowedTypes: [
+            ...CORE_TYPES,
+            'Event',
+            'Request',
+            'ReadableStream',
+            'ReadableStreamDefaultReader'
+        ],
+        disallowedTypes: [
+            'ipcMain'
+        ],
+        disallowedDefinitions: [
+            'lib.dom.d.ts'
+        ]
+    },
+    {
+        target: '**/vs/workbench/contrib/void/**',
+        allowedTypes: [
+            ...CORE_TYPES,
+            'IMainProcessService',
+            'INativeHostService',
+            'IWorkbenchEnvironmentService',
+            'INativeWorkbenchEnvironmentService',
+        ],
+        disallowedDefinitions: [
+            '@types/node'
         ]
     },
     // Common

@@ -21,7 +21,7 @@ type RefreshableState = ({
 	models: null,
 } | {
 	state: 'refreshing',
-	timeoutId: NodeJS.Timeout | null, // the timeoutId of the most recent call to refreshModels
+	timeoutId: any, // the timeoutId of the most recent call to refreshModels
 	models: (OllamaModelResponse | OpenaiCompatibleModelResponse)[] | null,
 } | {
 	state: 'finished',
@@ -215,7 +215,7 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 		}
 	}
 
-	private _setTimeoutId(providerName: RefreshableProviderName, timeoutId: NodeJS.Timeout | null) {
+	private _setTimeoutId(providerName: RefreshableProviderName, timeoutId: any) {
 		this.state[providerName].timeoutId = timeoutId
 	}
 
