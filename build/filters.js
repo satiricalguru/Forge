@@ -25,6 +25,8 @@ module.exports.all = [
 	'!cli/**/*',
 	'!out*/**',
 	'!test/**/out/**',
+	'!src/**/browser/react/out/**',
+	'!src/**/browser/react/src2/**',
 	'!**/node_modules/**',
 ];
 

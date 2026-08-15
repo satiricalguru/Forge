@@ -36,6 +36,8 @@
 **/src/vs/loader.js
 **/test/unit/assert.js
 **/test/automation/out/**
+**/src/**/browser/react/out/**
+**/src/**/browser/react/src2/**
 **/typings/**
 **/.build/**
 !.vscode

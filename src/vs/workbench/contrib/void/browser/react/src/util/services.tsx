@@ -248,8 +248,8 @@ const getReactAccessor = (accessor: ServicesAccessor) => {
 		IWorkspaceContextService: accessor.get(IWorkspaceContextService),
 		INativeHostService: accessor.get(INativeHostService),
 		IStorageService: accessor.get(IStorageService),
-		IHardwareService: accessor.get(IHardwareService),
-		ISkillsService: accessor.get(ISkillsService),
+		IHardwareService: safeGet(IHardwareService),
+		ISkillsService: safeGet(ISkillsService),
 
 		// Editor/layout-dependent services — may not be available in agents window
 		IEditCodeService: safeGet(IEditCodeService),
