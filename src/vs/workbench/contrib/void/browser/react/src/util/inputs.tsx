@@ -4,11 +4,8 @@
  *--------------------------------------------------------------------------------------*/
 
 import React, { forwardRef, ForwardRefExoticComponent, MutableRefObject, RefAttributes, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { IInputBoxStyles, InputBox } from '../../../../../../../base/browser/ui/inputbox/inputBox.js';
-import { defaultCheckboxStyles, defaultInputBoxStyles, defaultSelectBoxStyles } from '../../../../../../../platform/theme/browser/defaultStyles.js';
-import { SelectBox } from '../../../../../../../base/browser/ui/selectBox/selectBox.js';
+import { IInputBoxStyles } from '../../../../../../../base/browser/ui/inputbox/inputBox.js';
 import { IDisposable } from '../../../../../../../base/common/lifecycle.js';
-import { Checkbox } from '../../../../../../../base/browser/ui/toggle/toggle.js';
 
 import { CodeEditorWidget } from '../../../../../../../editor/browser/widget/codeEditor/codeEditorWidget.js'
 import { useAccessor } from './services.js';

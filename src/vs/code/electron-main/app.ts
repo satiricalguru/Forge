@@ -123,8 +123,7 @@ import { IWebContentExtractorService } from '../../platform/webContentExtractor/
 import { NativeWebContentExtractorService } from '../../platform/webContentExtractor/electron-main/webContentExtractorService.js';
 import ErrorTelemetry from '../../platform/telemetry/electron-main/errorTelemetry.js';
 
-// in theory this is not allowed
-// ignore the eslint errors below
+/* eslint-disable local/code-import-patterns */
 import { IMetricsService } from '../../workbench/contrib/void/common/metricsService.js';
 import { IVoidUpdateService } from '../../workbench/contrib/void/common/voidUpdateService.js';
 import { MetricsMainService } from '../../workbench/contrib/void/electron-main/metricsMainService.js';
@@ -139,6 +138,7 @@ import { IHardwareService } from '../../workbench/contrib/void/common/hardwareSe
 import { HardwareMainService } from '../../workbench/contrib/void/electron-main/hardwareMainService.js';
 import { ISessionRegistryService } from '../../workbench/contrib/void/common/sessionRegistryTypes.js';
 import { SessionRegistryMainService } from '../../workbench/contrib/void/electron-main/sessionRegistryMainService.js';
+/* eslint-enable local/code-import-patterns */
 /**
  * The main VS Code application. There will only ever be one instance,
  * even if the user starts many instances (e.g. from the command line).

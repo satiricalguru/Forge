@@ -331,35 +331,25 @@ export class MCPChannel implements IServerChannel {
 		const { content } = response as CallToolResult
 
 		// content may legally be an empty array (MCP spec) — never index [0] blindly
-		const textContent = Array.isArray(content) ? content.find(c => c?.type === 'text') : undefined
-		if (textContent && typeof textContent.text === 'string') {
-			if (response.isError) {
-				throw new Error(`Tool call error: ${textContent.text}`)
-			}
+		if (response.isError) {
+			const textContent = Array.isArray(content) ? content.find(c => c?.type === 'text') : undefined;
+			const errText = textContent && typeof textContent.text === 'string' ? textContent.text : JSON.stringify(content ?? response);
+			throw new Error(`Tool call error: ${errText}`);
+		}
 
+		const textContent = Array.isArray(content) ? content.find(c => c?.type === 'text') : undefined;
+		if (textContent && typeof textContent.text === 'string') {
 			// handle success
 			return {
 				event: 'text',
 				text: textContent.text,
 				toolName,
 				serverName,
-			}
+			};
 		}
 
-		// if (returnValue.type === 'audio') {
-		// 	// handle audio response
-		// }
-
-		// if (returnValue.type === 'image') {
-		// 	// handle image response
-		// }
-
-		// if (returnValue.type === 'resource') {
-		// 	// handle resource response
-		// }
-
-		const unsupportedType = Array.isArray(content) && content.length === 0 ? 'empty content array' : (content?.[0]?.type ?? 'non-text')
-		throw new Error(`Tool call error: We don\'t support ${unsupportedType} tool response yet for tool ${toolName} on server ${serverName}`)
+		const unsupportedType = Array.isArray(content) && content.length === 0 ? 'empty content array' : (content?.[0]?.type ?? 'non-text');
+		throw new Error(`Tool call error: Unsupported content format (${unsupportedType}) for tool ${toolName} on server ${serverName}`);
 	}
 
 	// tool call error wrapper

@@ -3,7 +3,6 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-/* eslint-disable @stylistic/ts/member-delimiter-style */
 /* eslint-disable local/code-no-unexternalized-strings */
 
 /**
