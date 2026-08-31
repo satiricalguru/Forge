@@ -164,7 +164,6 @@ const createNode = <T extends BaseNode = BaseNode>(
 	str: string,
 	partial: Partial<T>,
 ): T => {
-	// eslint-disable-next-line local/code-no-dangerous-type-assertions
 	const node = {
 		startIndex: 0,
 		type: NodeType.Word,

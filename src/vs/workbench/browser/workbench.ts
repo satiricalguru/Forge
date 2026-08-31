@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import './style.js';
-import { runWhenWindowIdle } from '../../base/browser/dom.js';
+import { runWhenWindowIdle, mainWindow } from '../../base/browser/dom.js';
 import { Event, Emitter, setGlobalLeakWarningThreshold } from '../../base/common/event.js';
 import { RunOnceScheduler, timeout } from '../../base/common/async.js';
 import { isFirefox, isSafari, isChrome } from '../../base/browser/browser.js';
@@ -177,7 +177,7 @@ export class Workbench extends Layout {
 			errDiv.style.zIndex = '9999';
 			errDiv.style.position = 'absolute';
 			errDiv.textContent = error instanceof Error ? error.stack || error.message : String(error);
-			document.body.appendChild(errDiv);
+			mainWindow.document.body.appendChild(errDiv);
 			
 			onUnexpectedError(error);
 
