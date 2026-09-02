@@ -49,7 +49,7 @@ jobs:
       - name: Generate roadmap directly into wiki
         run: |
           python .github/scripts/issue_triage.py > wiki/_new.md
-          if ! cmp -s wiki/_new.md wiki/Issue-Categories.md ; then
+          if [ -s wiki/_new.md ] && ! cmp -s wiki/_new.md wiki/Issue-Categories.md ; then
             mv wiki/_new.md wiki/Issue-Categories.md
             cd wiki
             git config user.name "github-actions[bot]"
@@ -58,7 +58,7 @@ jobs:
             git commit -m "Auto-update Issue-Categories.md from GPT triage"
             git push
           else
-            echo "No content change – skipping wiki update"
+            echo "No content change or triage skipped – skipping wiki update"
           fi
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
