@@ -3,7 +3,7 @@ from __future__ import annotations
 import os, sys, json, datetime, pathlib, textwrap, requests
 from openai import OpenAI
 
-REPO = os.environ.get("GITHUB_REPOSITORY", "voideditor/void")
+REPO = os.environ.get("GITHUB_REPOSITORY", "satiricalguru/Forge")
 CACHE_FILE = pathlib.Path(".github/triage_cache.json")
 STAMP_FILE = pathlib.Path(".github/last_triage.txt")
 
@@ -17,8 +17,14 @@ THEMES_MD = textwrap.dedent("""\
 7. 🗃 Meta: Feature Comparison, Structure, and Naming
 """).strip()
 
-client  = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-headers = {"Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}"}
+openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
+if not openai_key:
+    print("⚠️ OPENAI_API_KEY is not configured in repository secrets. Skipping GPT issue triage gracefully.", file=sys.stderr)
+    sys.exit(0)
+
+client = OpenAI(api_key=openai_key)
+github_token = os.environ.get("GITHUB_TOKEN", "").strip()
+headers = {"Authorization": f"Bearer {github_token}"} if github_token else {}
 
 
 # ───────── helpers ────────────────────────────────────────────────────────
