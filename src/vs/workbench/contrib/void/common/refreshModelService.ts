@@ -82,6 +82,9 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 	private readonly _onDidChangeState = new Emitter<{ providerName: RefreshableProviderName, options?: { doNotFire?: boolean } }>();
 	readonly onDidChangeState: Event<{ providerName: RefreshableProviderName, options?: { doNotFire?: boolean } }> = this._onDidChangeState.event; // this is primarily for use in react, so react can listen + update on state changes
 
+	/** Providers with a list round-trip currently in flight (single-flight guard). */
+	private readonly _inFlightOfProvider = new Set<RefreshableProviderName>()
+
 
 	constructor(
 		@IVoidSettingsService private readonly voidSettingsService: IVoidSettingsService,
@@ -160,7 +163,21 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 
 		this._clearProviderTimeout(providerName)
 
+		// Single-flight: if a list round-trip is already in flight for this
+		// provider, don't stack another one — the in-flight one will re-arm.
+		if (this._inFlightOfProvider.has(providerName)) return
+		this._inFlightOfProvider.add(providerName)
+
 		this._setRefreshState(providerName, 'refreshing', null, options)
+
+		let settled = false
+		const finish = (fn: () => void) => {
+			if (settled) return
+			settled = true
+			if (ipcTimer) clearTimeout(ipcTimer)
+			this._inFlightOfProvider.delete(providerName)
+			fn()
+		}
 
 		const autoPoll = () => {
 			if (this.voidSettingsService.state.globalSettings.autoRefreshModels) {
@@ -172,29 +189,42 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 		const listFn = providerName === 'ollama' ? this.llmMessageService.ollamaList
 			: this.llmMessageService.openAICompatibleList
 
+		// Safety net: if the main-process list round-trip never calls back
+		// (crash, dropped IPC), don't stall polling forever.
+		const ipcTimer = setTimeout(() => {
+			finish(() => {
+				this._setRefreshState(providerName, 'error', null, options)
+				autoPoll()
+			})
+		}, LIST_IPC_TIMEOUT_MS)
+
 		listFn({
 			providerName,
 			onSuccess: ({ models }) => {
-				// set the models to the detected models
-				this.voidSettingsService.setAutodetectedModels(
-					providerName,
-					models.map(model => {
-						if (providerName === 'ollama') return (model as OllamaModelResponse).name;
-						else if (providerName === 'vLLM') return (model as OpenaiCompatibleModelResponse).id;
-						else if (providerName === 'lmStudio') return (model as OpenaiCompatibleModelResponse).id;
-						else throw new Error('refreshMode fn: unknown provider', providerName);
-					}),
-					{ enableProviderOnSuccess: options.enableProviderOnSuccess, hideRefresh: options.doNotFire }
-				)
+				finish(() => {
+					// set the models to the detected models
+					this.voidSettingsService.setAutodetectedModels(
+						providerName,
+						models.map(model => {
+							if (providerName === 'ollama') return (model as OllamaModelResponse).name;
+							else if (providerName === 'vLLM') return (model as OpenaiCompatibleModelResponse).id;
+							else if (providerName === 'lmStudio') return (model as OpenaiCompatibleModelResponse).id;
+							else throw new Error('refreshMode fn: unknown provider', providerName);
+						}),
+						{ enableProviderOnSuccess: options.enableProviderOnSuccess, hideRefresh: options.doNotFire }
+					)
 
-				if (options.enableProviderOnSuccess) this.voidSettingsService.setSettingOfProvider(providerName, '_didFillInProviderSettings', true)
+					if (options.enableProviderOnSuccess) this.voidSettingsService.setSettingOfProvider(providerName, '_didFillInProviderSettings', true)
 
-				this._setRefreshState(providerName, 'finished', models, options)
-				autoPoll()
+					this._setRefreshState(providerName, 'finished', models, options)
+					autoPoll()
+				})
 			},
 			onError: ({ error }) => {
-				this._setRefreshState(providerName, 'error', null, options)
-				autoPoll()
+				finish(() => {
+					this._setRefreshState(providerName, 'error', null, options)
+					autoPoll()
+				})
 			}
 		})
 
