@@ -76,17 +76,23 @@ export function assertLocalUrl(url: string) {
 		throw new Error(`Not a valid URL: ${url}`);
 	}
 	const h = parsed.hostname.toLowerCase();
-	const isLocal = h === 'localhost' || h === '127.0.0.1' || h === '::1' || h === '0.0.0.0'
+	// NOTE: string-only check — no DNS resolution here (see callers in
+	// electron-main, which resolve via Node if needed). `.local`/mDNS and
+	// wildcard LAN ranges are intentionally allowed for self-hosted runtimes
+	// on the local network; DNS-rebinding of public names to local IPs is an
+	// accepted residual risk for a desktop IDE (documented, single-layer).
+	const isLocal = h === 'localhost' || h === '::1' || h === '0.0.0.0'
+		|| /^127\.(\d{1,3}\.){2}\d{1,3}$/.test(h)
 		|| h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.lan')
 		|| /^10\./.test(h)
 		|| /^192\.168\./.test(h)
 		|| /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(h)
 		|| h === 'host.docker.internal';
 	if (!isLocal) {
-		throw new Error(`Refusing non-local URL: ${url} (Forge is local-only)`);
+		throw new Error(`Refusing non-local URL: ${redactUrl(url)} (Forge is local-only)`);
 	}
 	if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-		throw new Error(`Refusing non-HTTP URL: ${url}`);
+		throw new Error(`Refusing non-HTTP URL: ${redactUrl(url)}`);
 	}
 }
 

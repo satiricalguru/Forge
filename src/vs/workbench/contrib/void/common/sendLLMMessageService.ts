@@ -90,15 +90,19 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		// .list()
 		this._register((this.channel.listen('onSuccess_list_ollama') satisfies Event<EventModelListOnSuccessParams<OllamaModelResponse>>)(e => {
 			this.listHooks.ollama.success[e.requestId]?.(e)
+			this._clearListHooks('ollama', e.requestId)
 		}))
 		this._register((this.channel.listen('onError_list_ollama') satisfies Event<EventModelListOnErrorParams<OllamaModelResponse>>)(e => {
 			this.listHooks.ollama.error[e.requestId]?.(e)
+			this._clearListHooks('ollama', e.requestId)
 		}))
 		this._register((this.channel.listen('onSuccess_list_openAICompatible') satisfies Event<EventModelListOnSuccessParams<OpenaiCompatibleModelResponse>>)(e => {
 			this.listHooks.openAICompat.success[e.requestId]?.(e)
+			this._clearListHooks('openAICompat', e.requestId)
 		}))
 		this._register((this.channel.listen('onError_list_openAICompatible') satisfies Event<EventModelListOnErrorParams<OpenaiCompatibleModelResponse>>)(e => {
 			this.listHooks.openAICompat.error[e.requestId]?.(e)
+			this._clearListHooks('openAICompat', e.requestId)
 		}))
 
 		// pull model listeners
