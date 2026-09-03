@@ -430,6 +430,15 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 						return value;
 					}
 				}
+				// Revive filesWithUserChanges Sets (JSON.stringify serializes Set as {}).
+				if (key === 'filesWithUserChanges' && value && typeof value === 'object') {
+					if (Array.isArray((value as { __set?: unknown }).__set)) {
+						const items = (value as { __set: unknown[] }).__set;
+						return new Set(items.filter(i => typeof i === 'string'));
+					}
+					// Legacy payloads stored a plain {} — recover as empty Set.
+					if (Object.keys(value).length === 0) return new Set<string>();
+				}
 				return value;
 			});
 		} catch (e) {
@@ -449,7 +458,12 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 	}
 
 	private _storeAllThreads(threads: ChatThreads) {
-		const serializedThreads = JSON.stringify(threads);
+		const serializedThreads = JSON.stringify(threads, (_key, value) => {
+			// Serialize Sets explicitly — otherwise JSON.stringify emits {} and
+			// reload revives a plain object that crashes on .has/.add.
+			if (value instanceof Set) return { __set: [...value] };
+			return value;
+		});
 		this._storageService.store(
 			THREAD_STORAGE_KEY,
 			serializedThreads,
@@ -596,12 +610,16 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 												if (sessionJSON && sessionJSON.id) {
 													const existing = loadedThreads[sessionJSON.id];
 													if (!existing || existing.lastModified !== sessionJSON.lastModified) {
+														const existingFiles = existing?.filesWithUserChanges;
 														loadedThreads[sessionJSON.id] = {
 															id: sessionJSON.id,
 															createdAt: sessionJSON.createdAt || new Date().toISOString(),
 															lastModified: sessionJSON.lastModified || new Date().toISOString(),
-															messages: (existing && existing.messages.length > (sessionJSON.messages?.length ?? 0)) ? existing.messages : (sessionJSON.messages || []),
-															filesWithUserChanges: existing?.filesWithUserChanges || new Set(),
+															// Prefer disk state on reload: only keep in-memory messages
+															// when timestamps match (concurrent write), never resurrect
+															// truncated/deleted messages over newer disk state.
+															messages: sessionJSON.messages || [],
+															filesWithUserChanges: existingFiles instanceof Set ? existingFiles : new Set<string>(),
 															agentType: sessionJSON.agentType,
 															isAuto: sessionJSON.isAuto,
 															workspacePath: sessionJSON.workspacePath,
@@ -642,12 +660,13 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 									if (sessionJSON && sessionJSON.id) {
 										const existing = loadedThreads[sessionJSON.id];
 										if (!existing || existing.lastModified !== sessionJSON.lastModified) {
+											const existingFiles = existing?.filesWithUserChanges;
 											loadedThreads[sessionJSON.id] = {
 												id: sessionJSON.id,
 												createdAt: sessionJSON.createdAt || new Date().toISOString(),
 												lastModified: sessionJSON.lastModified || new Date().toISOString(),
-												messages: (existing && existing.messages.length > (sessionJSON.messages?.length ?? 0)) ? existing.messages : (sessionJSON.messages || []),
-												filesWithUserChanges: existing?.filesWithUserChanges || new Set(),
+												messages: sessionJSON.messages || [],
+												filesWithUserChanges: existingFiles instanceof Set ? existingFiles : new Set<string>(),
 												agentType: sessionJSON.agentType,
 												isAuto: sessionJSON.isAuto,
 												workspacePath: sessionJSON.workspacePath,
@@ -672,7 +691,10 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 
 			if (changed) {
 				// Update storage
-				const serializedThreads = JSON.stringify(loadedThreads);
+				const serializedThreads = JSON.stringify(loadedThreads, (_key, value) => {
+					if (value instanceof Set) return { __set: [...value] };
+					return value;
+				});
 				this._storageService.store(
 					THREAD_STORAGE_KEY,
 					serializedThreads,

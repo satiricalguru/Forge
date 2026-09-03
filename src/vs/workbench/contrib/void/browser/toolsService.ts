@@ -38,9 +38,10 @@ const validateStr = (argName: string, value: unknown) => {
 }
 
 
-// We are NOT checking to make sure in workspace
-const validateURI = (uriStr: unknown) => {
-	if (uriStr === null) throw new Error(`Invalid LLM output: uri was null.`)
+// Parses an LLM-supplied uri/path string into a URI (no workspace check).
+// Callers must pass the result through `assertUriInWorkspace` (defined in the
+// service constructor, where IWorkspaceContextService is available).
+const validateURI = (uriStr: unknown) => {	if (uriStr === null) throw new Error(`Invalid LLM output: uri was null.`)
 	if (typeof uriStr !== 'string') throw new Error(`Invalid LLM output format: Provided uri must be a string, but it's a(n) ${typeof uriStr}. Full value: ${JSON.stringify(uriStr)}.`)
 
 	// Check if it's already a full URI with scheme (e.g., vscode-remote://, file://, etc.)
@@ -156,10 +157,42 @@ export class ToolsService implements IToolsService {
 	) {
 		const queryBuilder = instantiationService.createInstance(QueryBuilder);
 
+		// Forge: workspace containment. LLM file tools may only touch files inside
+		// an open workspace folder (symlink/path-traversal guard is best-effort at
+		// this layer — fileService resolves symlinks; we compare normalized paths).
+		// Single-file mode (no folders open) allows access so Void still works.
+		const assertUriInWorkspace = (uri: URI): URI => {
+			const folders = workspaceContextService.getWorkspace().folders;
+			if (folders.length === 0) return uri;
+			if (uri.scheme !== 'file' && uri.scheme !== 'vscode-remote') return uri;
+			for (const f of folders) {
+				if (f.uri.scheme !== uri.scheme) continue;
+				if ((f.uri.authority || '') !== (uri.authority || '')) continue;
+				const root = f.uri.fsPath.replace(/\/+$/, '');
+				const target = uri.fsPath;
+				if (target === root || target.startsWith(root + '/')) return uri;
+			}
+			throw new Error(`Refusing access outside the open workspace: ${uri.fsPath || uri.toString()} (Forge file tools are workspace-scoped)`);
+		};
+		const validateWorkspaceURI = (uriStr: unknown): URI => assertUriInWorkspace(validateURI(uriStr));
+		const assertCwdInWorkspace = (cwd: string): string => {
+			const folders = workspaceContextService.getWorkspace().folders;
+			if (folders.length === 0) return cwd;
+			// Relative cwds resolve against the workspace — allow.
+			if (!cwd.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(cwd) && !cwd.startsWith('\\\\')) return cwd;
+			const normalized = cwd.replace(/\/+$/, '');
+			for (const f of folders) {
+				if (f.uri.scheme !== 'file') continue;
+				const root = f.uri.fsPath.replace(/\/+$/, '');
+				if (normalized === root || normalized.startsWith(root + '/')) return cwd;
+			}
+			throw new Error(`Refusing terminal cwd outside the open workspace: ${cwd} (Forge terminals are workspace-scoped)`);
+		};
+
 		this.validateParams = {
 			read_file: (params: RawToolParamsObj) => {
 				const { uri: uriStr, start_line: startLineUnknown, end_line: endLineUnknown, page_number: pageNumberUnknown } = params
-				const uri = validateURI(uriStr)
+				const uri = validateWorkspaceURI(uriStr)
 				const pageNumber = validatePageNum(pageNumberUnknown)
 
 				let startLine = validateNumber(startLineUnknown, { default: null })
@@ -173,13 +206,13 @@ export class ToolsService implements IToolsService {
 			ls_dir: (params: RawToolParamsObj) => {
 				const { uri: uriStr, page_number: pageNumberUnknown } = params
 
-				const uri = validateURI(uriStr)
+				const uri = validateWorkspaceURI(uriStr)
 				const pageNumber = validatePageNum(pageNumberUnknown)
 				return { uri, pageNumber }
 			},
 			get_dir_tree: (params: RawToolParamsObj) => {
 				const { uri: uriStr, } = params
-				const uri = validateURI(uriStr)
+				const uri = validateWorkspaceURI(uriStr)
 				return { uri }
 			},
 			search_pathnames_only: (params: RawToolParamsObj) => {
@@ -205,7 +238,8 @@ export class ToolsService implements IToolsService {
 				} = params
 				const queryStr = validateStr('query', queryUnknown)
 				const pageNumber = validatePageNum(pageNumberUnknown)
-				const searchInFolder = validateOptionalURI(searchInFolderUnknown)
+				const searchInFolderRaw = validateOptionalURI(searchInFolderUnknown)
+				const searchInFolder = searchInFolderRaw ? assertUriInWorkspace(searchInFolderRaw) : null
 				const isRegex = validateBoolean(isRegexUnknown, { default: false })
 				return {
 					query: queryStr,
@@ -216,7 +250,7 @@ export class ToolsService implements IToolsService {
 			},
 			search_in_file: (params: RawToolParamsObj) => {
 				const { uri: uriStr, query: queryUnknown, is_regex: isRegexUnknown } = params;
-				const uri = validateURI(uriStr);
+				const uri = validateWorkspaceURI(uriStr);
 				const query = validateStr('query', queryUnknown);
 				const isRegex = validateBoolean(isRegexUnknown, { default: false });
 				return { uri, query, isRegex };
@@ -226,7 +260,7 @@ export class ToolsService implements IToolsService {
 				const {
 					uri: uriUnknown,
 				} = params
-				const uri = validateURI(uriUnknown)
+				const uri = validateWorkspaceURI(uriUnknown)
 				return { uri }
 			},
 
@@ -234,7 +268,7 @@ export class ToolsService implements IToolsService {
 
 			create_file_or_folder: (params: RawToolParamsObj) => {
 				const { uri: uriUnknown } = params
-				const uri = validateURI(uriUnknown)
+				const uri = validateWorkspaceURI(uriUnknown)
 				const uriStr = validateStr('uri', uriUnknown)
 				const isFolder = checkIfIsFolder(uriStr)
 				return { uri, isFolder }
@@ -242,7 +276,7 @@ export class ToolsService implements IToolsService {
 
 			delete_file_or_folder: (params: RawToolParamsObj) => {
 				const { uri: uriUnknown, is_recursive: isRecursiveUnknown } = params
-				const uri = validateURI(uriUnknown)
+				const uri = validateWorkspaceURI(uriUnknown)
 				const isRecursive = validateBoolean(isRecursiveUnknown, { default: false })
 				const uriStr = validateStr('uri', uriUnknown)
 				const isFolder = checkIfIsFolder(uriStr)
@@ -251,14 +285,14 @@ export class ToolsService implements IToolsService {
 
 			rewrite_file: (params: RawToolParamsObj) => {
 				const { uri: uriStr, new_content: newContentUnknown } = params
-				const uri = validateURI(uriStr)
+				const uri = validateWorkspaceURI(uriStr)
 				const newContent = validateStr('newContent', newContentUnknown)
 				return { uri, newContent }
 			},
 
 			edit_file: (params: RawToolParamsObj) => {
 				const { uri: uriStr, search_replace_blocks: searchReplaceBlocksUnknown } = params
-				const uri = validateURI(uriStr)
+				const uri = validateWorkspaceURI(uriStr)
 				const searchReplaceBlocks = validateStr('searchReplaceBlocks', searchReplaceBlocksUnknown)
 				return { uri, searchReplaceBlocks }
 			},
@@ -268,7 +302,8 @@ export class ToolsService implements IToolsService {
 			run_command: (params: RawToolParamsObj) => {
 				const { command: commandUnknown, cwd: cwdUnknown } = params
 				const command = validateStr('command', commandUnknown)
-				const cwd = validateOptionalStr('cwd', cwdUnknown)
+				const cwdRaw = validateOptionalStr('cwd', cwdUnknown)
+				const cwd = cwdRaw ? assertCwdInWorkspace(cwdRaw) : null
 				const terminalId = generateUuid()
 				return { command, cwd, terminalId }
 			},
@@ -280,7 +315,8 @@ export class ToolsService implements IToolsService {
 			},
 			open_persistent_terminal: (params: RawToolParamsObj) => {
 				const { cwd: cwdUnknown } = params;
-				const cwd = validateOptionalStr('cwd', cwdUnknown)
+				const cwdRaw = validateOptionalStr('cwd', cwdUnknown)
+				const cwd = cwdRaw ? assertCwdInWorkspace(cwdRaw) : null
 				// No parameters needed; will open a new background terminal
 				return { cwd };
 			},

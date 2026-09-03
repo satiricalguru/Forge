@@ -184,7 +184,7 @@ export class LLMMessageChannel implements IServerChannel {
 			this.pullEmitters.onError.fire({ requestId, error: err instanceof Error ? err.message : String(err) });
 			return;
 		}
-		let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+		let reader: { read(): Promise<{ value: Uint8Array | undefined; done: boolean }>; cancel(reason?: unknown): Promise<void>; releaseLock(): void } | undefined;
 		try {
 			const normalizedEndpoint = endpoint.replace(/\/+$/, '');
 			const pullAbort = AbortSignal.timeout(30 * 60_000);

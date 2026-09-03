@@ -206,9 +206,9 @@ export async function streamSSE(
 		// otherwise report a generic "empty response".
 		try {
 			const parsed = JSON.parse(line) as { error?: unknown };
-			if (parsed && typeof parsed === 'object' && parsed.error != null) {
+			if (parsed && typeof parsed === 'object' && parsed.error !== null && parsed.error !== undefined) {
 				const message = typeof parsed.error === 'string' ? parsed.error
-					: (parsed.error as { message?: unknown }).message != null ? String((parsed.error as { message?: unknown }).message)
+					: (parsed.error as { message?: unknown }).message !== null && (parsed.error as { message?: unknown }).message !== undefined ? String((parsed.error as { message?: unknown }).message)
 					: JSON.stringify(parsed.error);
 				throw new Error(message);
 			}
