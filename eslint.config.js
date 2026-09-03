@@ -1433,5 +1433,26 @@ export default tseslint.config(
 			'@typescript-eslint/prefer-optional-chain': 'warn',
 			'@typescript-eslint/prefer-readonly': 'warn',
 		}
+	},
+	// Forge: local-only network guard — all provider HTTP must go via httpUtil.
+	// Allows httpUtil.ts itself + tests; bans raw fetch in void/ to prevent regressions.
+	{
+		files: [
+			'src/vs/workbench/contrib/void/**/*.ts',
+		],
+		ignores: [
+			'src/vs/workbench/contrib/void/common/forge/httpUtil.ts',
+			'src/vs/workbench/contrib/void/test/**/*.ts',
+			'src/vs/workbench/contrib/void/**/*.test.ts',
+		],
+		rules: {
+			'no-restricted-globals': [
+				'error',
+				{
+					'name': 'fetch',
+					'message': 'Forge is local-only: use localFetch()/streamSSE() from common/forge/httpUtil.ts instead of raw fetch().'
+				}
+			],
+		}
 	}
 );

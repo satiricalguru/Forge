@@ -18,10 +18,10 @@
 	"win32DirName": "Forge",
 	"win32NameVersion": "Forge",
 	"win32RegValueName": "ForgeEditor",
-	"win32x64AppId": "{{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}",
-	"win32arm64AppId": "{{B2C3D4E5-F6A7-8901-BCDE-F12345678901}",
-	"win32x64UserAppId": "{{C3D4E5F6-A7B8-9012-CDEF-123456789012}",
-	"win32arm64UserAppId": "{{D4E5F6A7-B8C9-0123-DEF0-234567890123}",
+	"win32x64AppId": "{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}",
+	"win32arm64AppId": "{B2C3D4E5-F6A7-8901-BCDE-F12345678901}",
+	"win32x64UserAppId": "{C3D4E5F6-A7B8-9012-CDEF-123456789012}",
+	"win32arm64UserAppId": "{D4E5F6A7-B8C9-0123-DEF0-234567890123}",
 	"win32AppUserModelId": "Forge.Editor",
 	"win32ShellNameShort": "F&orge",
 	"win32TunnelServiceMutex": "forge-tunnelservice",
@@ -42,5 +42,7 @@
 		"https://ollama.com",
 		"https://open-vsx.org"
 	],
-	"enableTelemetry": false
+	"enableTelemetry": false,
+	"enableCrashReporter": false,
+	"updateUrl": null
 }

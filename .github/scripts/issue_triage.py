@@ -29,7 +29,7 @@ headers = {"Authorization": f"Bearer {github_token}"} if github_token else {}
 
 # ───────── helpers ────────────────────────────────────────────────────────
 def utc_iso_now() -> str:
-    return datetime.datetime.utcnow().replace(microsecond=0, tzinfo=datetime.timezone.utc).isoformat()
+    return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
 
 def read_stamp() -> str:
     return STAMP_FILE.read_text().strip() if STAMP_FILE.exists() else "1970-01-01T00:00:00Z"
@@ -53,7 +53,7 @@ def fetch_open_issues(since_iso: str | None = None) -> list[dict]:
             f"?state=open&per_page=100&page={page}"
             + (f"&since={since_iso}" if since_iso else "")
         )
-        chunk = requests.get(url, headers=headers).json()
+        chunk = requests.get(url, headers=headers, timeout=30).json()
         if not chunk or (isinstance(chunk, dict) and chunk.get("message")):
             break
         issues.extend(i for i in chunk if "pull_request" not in i)

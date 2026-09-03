@@ -8,8 +8,13 @@ on:
 jobs:
   roadmap:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: issue-triage
+      cancel-in-progress: true
     permissions:
       contents: write
+      issues: read
 
     steps:
       # 1️⃣ Check out code (so the script and cache files are present)
@@ -24,10 +29,10 @@ jobs:
         with:
           python-version: '3.11'
 
-      # 3️⃣ Install dependencies
+      # 3️⃣ Install dependencies (pinned for supply-chain stability)
       - name: Install Python dependencies
         run: |
-          pip install openai requests
+          pip install "openai==1.99.1" "requests==2.32.3"
 
       # 4️⃣ Clone your fork’s Wiki
       - name: Clone your fork's Wiki

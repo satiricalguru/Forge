@@ -263,10 +263,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/microsoft/vscode.git"
+    "url": "https://github.com/satiricalguru/Forge.git"
   },
   "bugs": {
-    "url": "https://github.com/microsoft/vscode/issues"
+    "url": "https://github.com/satiricalguru/Forge/issues"
   },
   "optionalDependencies": {
     "windows-foreground-love": "0.5.0"

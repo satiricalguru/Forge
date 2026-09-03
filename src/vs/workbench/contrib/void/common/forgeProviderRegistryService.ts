@@ -6,8 +6,8 @@
 import { Emitter, Event } from '../../../../base/common/event.js';
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { CancellationToken, CancellationTokenSource } from '../../../../base/common/cancellation.js';
-import { ILocalProvider, ILocalProviderRegistry, ILocalProviderRegistryService, ModelList, ProviderHealth, UNKNOWN_CAPABILITIES } from './forgeProviderTypes.js';
-import { resolveForgeProvider } from './forge/forgeProviderResolve.js';
+import { ILocalProvider, ILocalProviderRegistry, ILocalProviderRegistryService, ModelCapabilities, ModelList, ProviderHealth, UNKNOWN_CAPABILITIES } from './forgeProviderTypes.js';
+import { bindForgeProviderEndpoint, resolveForgeProvider } from './forge/forgeProviderResolve.js';
 import { IVoidSettingsService } from './voidSettingsService.js';
 import { ProviderName, SettingsAtProvider } from './voidSettingsTypes.js';
 
@@ -17,6 +17,22 @@ const HEALTH_PROBE_TIMEOUT_MS = 2_500;
 const BACKOFF_BASE_MS = 7_000;
 const BACKOFF_MAX_MS = 120_000;
 const BACKOFF_MULTIPLIER = 2;
+
+/**
+ * Registry provider id → Void settings ProviderName.
+ * Registry ids are lowercase ('ollama'|'lmstudio'|'vllm'|'llamacpp'|'localai');
+ * ProviderNames are ('ollama'|'vLLM'|'lmStudio'|'openAICompatible').
+ * llama.cpp / LocalAI have no dedicated settings slot — they resolve via the
+ * registry singleton directly (see providerForId).
+ */
+const REGISTRY_ID_TO_PROVIDER_NAME: Record<string, ProviderName | null> = {
+	ollama: 'ollama',
+	lmstudio: 'lmStudio',
+	vllm: 'vLLM',
+	llamacpp: null,
+	localai: null,
+	openaicompatible: 'openAICompatible',
+};
 
 
 export class LocalProviderRegistryService extends Disposable implements ILocalProviderRegistryService {
@@ -221,5 +237,40 @@ export class LocalProviderRegistryService extends Disposable implements ILocalPr
 	 */
 	providerFor(providerName: ProviderName): ILocalProvider | undefined {
 		return resolveForgeProvider(providerName, this.settingsService.state.settingsOfProvider);
+	}
+
+	/**
+	 * Registry-id variants for the Chat bridge. Registry ids ('ollama'|'lmstudio'|
+	 * 'vllm'|'llamacpp'|'localai') differ from ProviderName casing; these helpers
+	 * honour user endpoint overrides where a settings slot exists and fall back
+	 * to the registry singleton (default endpoint) otherwise.
+	 */
+	providerForId(providerId: string): ILocalProvider | undefined {
+		const providerName = REGISTRY_ID_TO_PROVIDER_NAME[providerId.toLowerCase()];
+		if (providerName) {
+			return resolveForgeProvider(providerName, this.settingsService.state.settingsOfProvider);
+		}
+		const base = this.registry.get(providerId);
+		if (!base) return undefined;
+		// llama.cpp / LocalAI share the openAICompatible custom-endpoint slot when
+		// the user configured one; otherwise use built-in defaults.
+		const customEndpoint = (this.settingsService.state.settingsOfProvider.openAICompatible as { endpoint?: string } | undefined)?.endpoint?.trim();
+		return customEndpoint ? bindForgeProviderEndpoint(base, customEndpoint) : base;
+	}
+
+	async listModelsForProviderId(providerId: string, token: CancellationToken = CancellationToken.None): Promise<ModelList> {
+		const provider = this.providerForId(providerId);
+		if (!provider) return { models: [] };
+		try {
+			return await provider.listModels(token);
+		} catch {
+			return { models: [] };
+		}
+	}
+
+	capabilitiesForId(providerId: string, modelName: string): ModelCapabilities {
+		const provider = this.providerForId(providerId);
+		if (!provider) return UNKNOWN_CAPABILITIES;
+		return provider.capabilitiesFor(modelName);
 	}
 }
