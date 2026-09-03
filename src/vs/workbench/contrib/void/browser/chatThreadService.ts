@@ -723,6 +723,13 @@ class ChatThreadService extends Disposable implements IChatThreadService {
 		// if we did not just set the state to true, set mount info
 		if (doNotRefreshMountInfo) return
 
+		// Don't orphan pending waiters: if the current thread already has an
+		// unresolved mountedInfo promise, keep it instead of replacing it.
+		// Recreating it on every message during streaming caused focus/scroll/
+		// agent-run waiters (awaiting whenMounted) to hang forever.
+		const existingMount = this.state.allThreads[threadId]?.state.mountedInfo
+		if (existingMount && !existingMount.mountedIsResolvedRef.current) return
+
 		let whenMountedResolver: (w: WhenMounted) => void
 		const whenMountedPromise = new Promise<WhenMounted>((res) => whenMountedResolver = res)
 
