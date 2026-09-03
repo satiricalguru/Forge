@@ -88,12 +88,15 @@ export class MCPChannel implements IServerChannel {
 		try {
 			if (command === 'refreshMCPServers') {
 				await this._refreshMCPServers(params)
+				return { ok: true }
 			}
 			else if (command === 'closeAllMCPServers') {
 				await this._closeAllMCPServers()
+				return { ok: true }
 			}
 			else if (command === 'toggleMCPServer') {
 				await this._toggleMCPServer(params.serverName, params.isOn)
+				return { ok: true }
 			}
 			else if (command === 'callTool') {
 				const p: MCPToolCallParams = params
@@ -106,6 +109,7 @@ export class MCPChannel implements IServerChannel {
 		}
 		catch (e) {
 			console.error('mcp channel: Call Error:', e)
+			throw e instanceof Error ? e : new Error(String(e))
 		}
 	}
 
@@ -132,32 +136,30 @@ export class MCPChannel implements IServerChannel {
 
 		await Promise.all(
 			allChanges.map(async ({ serverName, type }) => {
-
 				// check if already refreshing
 				if (this._refreshingServerNames.has(serverName)) return
 				this._refreshingServerNames.add(serverName)
+				try {
+					const prevServer = this.infoOfClientId[serverName]?.mcpServer;
 
-				const prevServer = this.infoOfClientId[serverName]?.mcpServer;
+					// close and delete the old client
+					if (type === 'removed' || type === 'updated') {
+						await this._closeClient(serverName)
+						delete this.infoOfClientId[serverName]
+						this.mcpEmitters.serverEvent.onDelete.fire({ response: { prevServer, name: serverName, } })
+					}
 
-				// close and delete the old client
-				if (type === 'removed' || type === 'updated') {
-					await this._closeClient(serverName)
-					delete this.infoOfClientId[serverName]
-					this.mcpEmitters.serverEvent.onDelete.fire({ response: { prevServer, name: serverName, } })
-				}
-
-				// create a new client
-				if (type === 'added' || type === 'updated') {
-					const clientInfo = await this._createClient(mcpServersJSON[serverName], serverName, userStateOfName[serverName]?.isOn)
-					this.infoOfClientId[serverName] = clientInfo
-					this.mcpEmitters.serverEvent.onAdd.fire({ response: { newServer: clientInfo.mcpServer, name: serverName, } })
+					// create a new client
+					if (type === 'added' || type === 'updated') {
+						const clientInfo = await this._createClient(mcpServersJSON[serverName], serverName, userStateOfName[serverName]?.isOn)
+						this.infoOfClientId[serverName] = clientInfo
+						this.mcpEmitters.serverEvent.onAdd.fire({ response: { newServer: clientInfo.mcpServer, name: serverName, } })
+					}
+				} finally {
+					this._refreshingServerNames.delete(serverName)
 				}
 			})
 		)
-
-		allChanges.forEach(({ serverName, type }) => {
-			this._refreshingServerNames.delete(serverName)
-		})
 
 	}
 
