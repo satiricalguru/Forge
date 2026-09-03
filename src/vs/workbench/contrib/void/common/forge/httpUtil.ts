@@ -34,16 +34,36 @@ export async function localFetch(url: string, init?: RequestInit & { timeoutMs?:
 	upstreamSignal?.addEventListener('abort', abort, { once: true });
 	const timer = timeoutMs ? setTimeout(() => controller.abort(), timeoutMs) : null;
 	try {
-		const res = await fetch(url, { ...rest, signal: controller.signal });
+		// Never follow redirects: a local server must not be able to bounce our
+		// request (with its body) to a remote host. Callers that need redirect
+		// support must re-validate the Location via assertLocalUrl themselves.
+		const res = await fetch(url, { ...rest, signal: controller.signal, redirect: 'error' });
 		if (!res.ok) {
 			controller.abort(); // close the connection; we won't read the error body
-			throw new HttpError(res.status, `${res.status} ${res.statusText} for ${url}`);
+			throw new HttpError(res.status, `${res.status} ${res.statusText} for ${redactUrl(url)}`);
 		}
 		return res;
 	} finally {
 		if (timer) clearTimeout(timer);
 		cancellationListener?.dispose();
-		upstreamSignal?.removeEventListener('abort', abort);
+		// NOTE: for non-streaming callers the response body is consumed after we
+		// return, so we intentionally keep the upstream→inner abort wiring alive
+		// until the upstream signal fires (once:true auto-removes). Removing it
+		// here would break cancellation of in-flight body reads (see streamSSE).
+	}
+}
+
+function redactUrl(url: string): string {
+	try {
+		const parsed = new URL(url);
+		if (parsed.username || parsed.password) {
+			parsed.username = '***';
+			parsed.password = '';
+			return parsed.toString();
+		}
+		return url;
+	} catch {
+		return url;
 	}
 }
 
@@ -109,95 +129,130 @@ export async function streamSSE(
 	onChunk: (obj: unknown) => void,
 	headers: Record<string, string> = {},
 ): Promise<{ cancel(): void; finished: Promise<void> }> {
+	assertLocalUrl(url);
 	const controller = new AbortController();
 	let cancelledLocally = false;
 	let idleTimedOut = false;
 
 	const abortListener = () => {
 		cancelledLocally = true;
-		controller.abort();
+		try { controller.abort(); } catch { /* ignore */ }
 	};
 	if (signal) {
 		if (signal.aborted) abortListener();
 		else signal.addEventListener('abort', abortListener);
 	}
 
+	let res: Response;
 	try {
-		const res = await localFetch(url, {
+		res = await fetch(url, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json', ...headers },
 			body: JSON.stringify(body),
 			signal: controller.signal,
+			redirect: 'error',
 		});
-
-		const reader = toStreamBody(res.body)?.getReader();
-		if (!reader) throw new Error('No response body for streaming request');
-
-		const decoder = new TextDecoder();
-		let buf = '';
-		let idleTimer: ReturnType<typeof setTimeout> | null = null;
-
-		const armIdleTimeout = () => {
-			if (idleTimer) clearTimeout(idleTimer);
-			idleTimer = setTimeout(() => {
-				idleTimedOut = true;
-				controller.abort();
-			}, STREAM_IDLE_TIMEOUT_MS);
-		};
-		const clearIdleTimeout = () => {
-			if (idleTimer) {
-				clearTimeout(idleTimer);
-				idleTimer = null;
-			}
-		};
-
-		const parsePart = (part: string) => {
-			const line = part.startsWith('data:') ? part.slice(5).trim() : part.trim();
-			if (!line || line === '[DONE]') return;
-			try {
-				onChunk(JSON.parse(line));
-			} catch {
-				// ignore non-JSON lines
-			}
-		};
-
-		const cancel = () => abortListener();
-
-		const finished = (async () => {
-			try {
-				armIdleTimeout();
-				while (true) {
-					const { value, done } = await reader.read();
-					if (done) break;
-					armIdleTimeout();
-					buf += decoder.decode(value, { stream: true });
-					if (buf.length > MAX_STREAM_BUFFER_BYTES) {
-						throw new Error(`SSE stream from ${url} exceeded the maximum buffer size (${MAX_STREAM_BUFFER_BYTES} bytes)`);
-					}
-					const lines = buf.split(/\r?\n/);
-					buf = lines.pop() ?? '';
-					for (const line of lines) {
-						parsePart(line);
-					}
-				}
-				// process any residual partial chunk the final read left behind
-				if (buf) parsePart(buf);
-			} catch (err) {
-				if (!cancelledLocally) {
-					throw idleTimedOut ? new Error(`Stream from ${url} timed out after ${STREAM_IDLE_TIMEOUT_MS}ms without data`) : err;
-				}
-				// aborted by signal/cancel — resolve cleanly like a normal end
-			} finally {
-				clearIdleTimeout();
-				signal?.removeEventListener('abort', abortListener);
-				try { reader.releaseLock(); } catch { /* ignore */ }
-			}
-		})();
-
-		return { cancel, finished };
 	} catch (err) {
-		// don't leak the abort listener if localFetch itself failed
+		// don't leak the abort listener if fetch itself failed
 		signal?.removeEventListener('abort', abortListener);
 		throw err;
 	}
+	if (!res.ok) {
+		signal?.removeEventListener('abort', abortListener);
+		try { await res.body?.cancel(); } catch { /* ignore */ }
+		throw new HttpError(res.status, `${res.status} ${res.statusText} for ${redactUrl(url)}`);
+	}
+
+	const reader = toStreamBody(res.body)?.getReader();
+	if (!reader) {
+		signal?.removeEventListener('abort', abortListener);
+		try { await res.body?.cancel(); } catch { /* ignore */ }
+		throw new Error('No response body for streaming request');
+	}
+
+	const decoder = new TextDecoder();
+	let buf = '';
+	let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+	const armIdleTimeout = () => {
+		if (idleTimer) clearTimeout(idleTimer);
+		idleTimer = setTimeout(() => {
+			// Idle timeout is a genuine error, NOT a user cancel: mark it first
+			// so the finished() catch below surfaces it instead of swallowing.
+			idleTimedOut = true;
+			try { controller.abort(); } catch { /* ignore */ }
+			// Reader.read() may not reject promptly on all platforms — cancel
+			// the reader directly to unblock the loop.
+			try { void reader.cancel('idle timeout'); } catch { /* ignore */ }
+		}, STREAM_IDLE_TIMEOUT_MS);
+	};
+	const clearIdleTimeout = () => {
+		if (idleTimer) {
+			clearTimeout(idleTimer);
+			idleTimer = null;
+		}
+	};
+
+	const parsePart = (part: string) => {
+		const line = part.startsWith('data:') ? part.slice(5).trim() : part.trim();
+		if (!line || line === '[DONE]') return;
+		// Surface streamed server-side errors instead of swallowing them: providers
+		// otherwise report a generic "empty response".
+		try {
+			const parsed = JSON.parse(line) as { error?: unknown };
+			if (parsed && typeof parsed === 'object' && parsed.error != null) {
+				const message = typeof parsed.error === 'string' ? parsed.error
+					: (parsed.error as { message?: unknown }).message != null ? String((parsed.error as { message?: unknown }).message)
+					: JSON.stringify(parsed.error);
+				throw new Error(message);
+			}
+			onChunk(parsed);
+		} catch (err) {
+			if (err instanceof SyntaxError) {
+				// ignore non-JSON keep-alive lines
+				return;
+			}
+			throw err;
+		}
+	};
+
+	const cancel = () => abortListener();
+
+	const finished = (async () => {
+		try {
+			armIdleTimeout();
+			while (true) {
+				const { value, done } = await reader.read();
+				if (done) break;
+				armIdleTimeout();
+				buf += decoder.decode(value, { stream: true });
+				if (buf.length > MAX_STREAM_BUFFER_BYTES) {
+					throw new Error(`SSE stream from ${redactUrl(url)} exceeded the maximum buffer size (${MAX_STREAM_BUFFER_BYTES} bytes)`);
+				}
+				const lines = buf.split(/\r?\n/);
+				buf = lines.pop() ?? '';
+				for (const line of lines) {
+					parsePart(line);
+				}
+			}
+			// process any residual partial chunk the final read left behind
+			if (buf) parsePart(buf);
+		} catch (err) {
+			// Idle timeout takes precedence over cancel (the timer sets both).
+			if (idleTimedOut) {
+				throw new Error(`Stream from ${redactUrl(url)} timed out after ${STREAM_IDLE_TIMEOUT_MS}ms without data`);
+			}
+			if (!cancelledLocally) {
+				throw err;
+			}
+			// aborted by signal/cancel — resolve cleanly like a normal end
+		} finally {
+			clearIdleTimeout();
+			signal?.removeEventListener('abort', abortListener);
+			try { await reader.cancel(); } catch { /* ignore */ }
+			try { reader.releaseLock(); } catch { /* ignore */ }
+		}
+	})();
+
+	return { cancel, finished };
 }
