@@ -30,3 +30,10 @@ src/vs/workbench/contrib/void/browser/react/out/**
 src/vs/workbench/contrib/void/browser/react/src2/**
 .kiro/
 
+# Forge: python bytecode / caches
+__pycache__/
+*.pyc
+*.pyo
+.github/triage_cache.json
+.github/last_triage.txt
+

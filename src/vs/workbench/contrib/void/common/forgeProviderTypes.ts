@@ -161,6 +161,11 @@ export interface ILocalProviderRegistryService {
 	listModelsFor(providerName: import('./voidSettingsTypes.js').ProviderName, token?: CancellationToken): Promise<ModelList>;
 	capabilitiesFor(providerName: import('./voidSettingsTypes.js').ProviderName, modelName: string): ModelCapabilities;
 	providerFor(providerName: import('./voidSettingsTypes.js').ProviderName): ILocalProvider | undefined;
+	/** Registry-id variants (registry ids are 'ollama'|'lmstudio'|'vllm'|'llamacpp'|'localai',
+	 *  which differ in case/spelling from ProviderName). Prefer these from the Chat bridge. */
+	listModelsForProviderId(providerId: string, token?: CancellationToken): Promise<ModelList>;
+	capabilitiesForId(providerId: string, modelName: string): ModelCapabilities;
+	providerForId(providerId: string): ILocalProvider | undefined;
 }
 
 export const ILocalProviderRegistryService = createDecorator<ILocalProviderRegistryService>('localProviderRegistryService');

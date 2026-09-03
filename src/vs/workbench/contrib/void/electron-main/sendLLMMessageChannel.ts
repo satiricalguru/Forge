@@ -11,6 +11,7 @@ import { Emitter, Event } from '../../../../base/common/event.js';
 import { EventLLMMessageOnTextParams, EventLLMMessageOnErrorParams, EventLLMMessageOnFinalMessageParams, MainSendLLMMessageParams, AbortRef, SendLLMMessageParams, MainLLMMessageAbortParams, ModelListParams, EventModelListOnSuccessParams, EventModelListOnErrorParams, OllamaModelResponse, OpenaiCompatibleModelResponse, MainModelListParams, MainPullModelParams, EventPullModelOnProgressParams, EventPullModelOnSuccessParams, EventPullModelOnErrorParams } from '../common/sendLLMMessageTypes.js';
 import { sendLLMMessage } from './llmMessage/sendLLMMessage.js'
 import { sendLLMMessageToProviderImplementation } from './llmMessage/sendLLMMessage.impl.js';
+import { assertLocalUrl, localFetch } from '../common/forge/httpUtil.js';
 
 // NODE IMPLEMENTATION - calls actual sendLLMMessage() and returns listeners to it
 
@@ -173,20 +174,29 @@ export class LLMMessageChannel implements IServerChannel {
 			this.pullEmitters.onError.fire({ requestId: typeof requestId === 'string' ? requestId : '', error: 'Invalid pull request params' });
 			return;
 		}
+		if (!modelName.trim() || modelName.length > 256) {
+			this.pullEmitters.onError.fire({ requestId, error: 'Invalid model name' });
+			return;
+		}
 		try {
-			const res = await fetch(`${endpoint}/api/pull`, {
+			assertLocalUrl(endpoint);
+		} catch (err) {
+			this.pullEmitters.onError.fire({ requestId, error: err instanceof Error ? err.message : String(err) });
+			return;
+		}
+		let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+		try {
+			const normalizedEndpoint = endpoint.replace(/\/+$/, '');
+			const pullAbort = AbortSignal.timeout(30 * 60_000);
+			const res = await localFetch(`${normalizedEndpoint}/api/pull`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ name: modelName, stream: true }),
-				signal: AbortSignal.timeout(30 * 60_000), // pulls of big models can be slow, but don't hang forever
+				timeoutMs: 10_000,
+				signal: pullAbort,
 			});
 
-			if (!res.ok) {
-				this.pullEmitters.onError.fire({ requestId, error: `HTTP error! status: ${res.status}` });
-				return;
-			}
-
-			const reader = res.body?.getReader();
+			reader = res.body?.getReader();
 			if (!reader) {
 				this.pullEmitters.onError.fire({ requestId, error: 'ReadableStream not supported' });
 				return;
@@ -203,6 +213,7 @@ export class LLMMessageChannel implements IServerChannel {
 				if (buffer.length > 8 * 1024 * 1024) {
 					// cap runaway progress output
 					this.pullEmitters.onError.fire({ requestId, error: 'Pull progress output exceeded the maximum allowed size' });
+					try { await reader.cancel('buffer overflow'); } catch { /* ignore */ }
 					return;
 				}
 				const lines = buffer.split('\n');
@@ -216,6 +227,7 @@ export class LLMMessageChannel implements IServerChannel {
 						const json = JSON.parse(trimmed);
 						if (json.error) {
 							this.pullEmitters.onError.fire({ requestId, error: json.error });
+							try { await reader.cancel('server error'); } catch { /* ignore */ }
 							return;
 						}
 						let percent = 0;
@@ -233,6 +245,8 @@ export class LLMMessageChannel implements IServerChannel {
 			this.pullEmitters.onSuccess.fire({ requestId });
 		} catch (error) {
 			this.pullEmitters.onError.fire({ requestId, error: String(error) });
+		} finally {
+			try { reader?.releaseLock(); } catch { /* ignore */ }
 		}
 	}
 

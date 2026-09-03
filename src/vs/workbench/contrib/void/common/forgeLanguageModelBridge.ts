@@ -44,7 +44,6 @@ import {
 	ILanguageModelsService,
 } from '../../chat/common/languageModels.js';
 import { ChatRequest, ChatStreamHandle, StreamChunk, ILocalProviderRegistryService } from './forgeProviderTypes.js';
-import { ProviderName } from './voidSettingsTypes.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -72,7 +71,8 @@ function safeModelId(providerId: string, modelId: string, existing: ReadonlySet<
 
 /**
  * Map VS Code IChatMessage → Forge ChatRequest messages.
- * VS Code uses a richer part-based format; we flatten to strings.
+ * VS Code uses a richer part-based format; we flatten text parts to strings.
+ * Tool / image parts are not yet forwarded (plain-text fallback).
  */
 function toForgeChatMessages(messages: IChatMessage[]): ChatRequest['messages'] {
 	const result: ChatRequest['messages'] = [];
@@ -91,7 +91,7 @@ function toForgeChatMessages(messages: IChatMessage[]): ChatRequest['messages'] 
 			.map(p => (p as { type: 'text'; value: string }).value)
 			.join('');
 
-		result.push({ role, content: text } as any);
+		result.push({ role, content: text });
 	}
 	return result;
 }
@@ -153,7 +153,7 @@ export class ForgeLanguageModelBridge extends Disposable implements IForgeLangua
 					// listModelsFor re-fetches, but _syncProvider no-ops unless the
 					// model list actually changed — so this stays cheap when nothing
 					// changed and still catches models being pulled/removed.
-					this._syncProvider(providerId as ProviderName);
+					this._syncProvider(providerId);
 				} else if (health.status === 'unhealthy') {
 					this._teardownProvider(providerId);
 				}
@@ -163,7 +163,7 @@ export class ForgeLanguageModelBridge extends Disposable implements IForgeLangua
 		// Initial sync: pick up providers that are already healthy.
 		for (const [providerId, health] of this._providerRegistryService.getAllHealth()) {
 			if (health.status === 'healthy') {
-				this._syncProvider(providerId as ProviderName);
+				this._syncProvider(providerId);
 			}
 		}
 	}
@@ -181,63 +181,63 @@ export class ForgeLanguageModelBridge extends Disposable implements IForgeLangua
 	}
 
 	/** Serialized, coalesced entry point for `_syncProvider`. */
-	private _syncProvider(providerName: ProviderName): void {
-		const previous = this._syncChainByProvider.get(providerName) ?? Promise.resolve();
+	private _syncProvider(providerId: string): void {
+		const previous = this._syncChainByProvider.get(providerId) ?? Promise.resolve();
 		const chain = previous
-			.then(() => this._doSyncProvider(providerName))
-			.catch(err => this._log.warn(`[ForgeLanguageModelBridge] _syncProvider(${providerName}) failed:`, err))
+			.then(() => this._doSyncProvider(providerId))
+			.catch(err => this._log.warn(`[ForgeLanguageModelBridge] _syncProvider(${providerId}) failed:`, err))
 			.then(() => {
-				if (this._syncChainByProvider.get(providerName) === chain) {
-					this._syncChainByProvider.delete(providerName);
+				if (this._syncChainByProvider.get(providerId) === chain) {
+					this._syncChainByProvider.delete(providerId);
 				}
 			});
-		this._syncChainByProvider.set(providerName, chain);
+		this._syncChainByProvider.set(providerId, chain);
 	}
 
-	private async _doSyncProvider(providerName: ProviderName): Promise<void> {
-		const { models } = await this._providerRegistryService.listModelsFor(providerName);
-		const signature = models.map(m => m.id).join('\u0000');
+	private async _doSyncProvider(providerId: string): Promise<void> {
+		const { models } = await this._providerRegistryService.listModelsForProviderId(providerId);
+		const signature = models.map(m => m.id).join(' ');
 		if (models.length === 0) {
 			// zero models on a *healthy* probe still tears the provider down;
 			// if the server can't be reached, health will be unhealthy instead
-			this._modelSignatureByProvider.delete(providerName);
-			this._teardownProvider(providerName);
+			this._modelSignatureByProvider.delete(providerId);
+			this._teardownProvider(providerId);
 			return;
 		}
-		if (this._modelSignatureByProvider.get(providerName) === signature && this._registrationsByProvider.has(providerName)) {
+		if (this._modelSignatureByProvider.get(providerId) === signature && this._registrationsByProvider.has(providerId)) {
 			// nothing changed — avoid tearing down and re-registering every model
 			return;
 		}
 
 		// Tear down old registrations first (model list may have changed).
-		this._teardownProvider(providerName);
+		this._teardownProvider(providerId);
 
 		const store = new DisposableStore();
-		this._registrationsByProvider.set(providerName, store);
+		this._registrationsByProvider.set(providerId, store);
 		const registeredIds = new Set<string>();
-		this._registeredIdsByProvider.set(providerName, registeredIds);
+		this._registeredIdsByProvider.set(providerId, registeredIds);
 
 		for (const model of models) {
-			const identifier = safeModelId(providerName, model.id, registeredIds);
+			const identifier = safeModelId(providerId, model.id, registeredIds);
 
 			// Skip if already registered (race guard).
 			if (this._languageModelsService.lookupLanguageModel(identifier)) {
 				continue;
 			}
 
-			const provider = this._providerRegistryService.providerFor(providerName);
+			const provider = this._providerRegistryService.providerForId(providerId);
 			if (!provider) continue;
 
-			const caps = this._providerRegistryService.capabilitiesFor(providerName, model.id);
+			const caps = this._providerRegistryService.capabilitiesForId(providerId, model.id);
 
 			const lmProvider: ILanguageModelChat = {
 				metadata: {
 					extension: FORGE_EXTENSION_ID,
 					id: model.id,
-					name: `${model.id} (via ${providerName})`,
+					name: `${model.id} (via ${providerId})`,
 					vendor: FORGE_VENDOR,
 					version: '1.0',
-					family: providerName,
+					family: providerId,
 					maxInputTokens: caps.contextWindow ?? 8192,
 					maxOutputTokens: caps.reservedOutputTokens ?? 2048,
 					isDefault: false,
@@ -257,7 +257,7 @@ export class ForgeLanguageModelBridge extends Disposable implements IForgeLangua
 					const text = typeof msg === 'string' ? msg
 						: msg.content
 							.filter(p => p.type === 'text')
-							.map(p => (p as any).value as string)
+							.map(p => (p as { type: 'text'; value: string }).value)
 							.join('');
 					return Math.ceil(text.length / 4);
 				},
@@ -278,7 +278,7 @@ export class ForgeLanguageModelBridge extends Disposable implements IForgeLangua
 			}
 		}
 
-		this._modelSignatureByProvider.set(providerName, signature);
+		this._modelSignatureByProvider.set(providerId, signature);
 	}
 
 	private _sendRequest(
@@ -314,7 +314,7 @@ export class ForgeLanguageModelBridge extends Disposable implements IForgeLangua
 							part: { type: 'text', value: chunk.text },
 						});
 					}
-					// Reasoning chunks are surfaced as text with a prefix so they
+					// Reasoning chunks are surfaced as plain text so they
 					// are visible in the chat UI without a dedicated part type.
 					if (chunk.kind === 'reasoning' && chunk.text) {
 						stream.emitOne({

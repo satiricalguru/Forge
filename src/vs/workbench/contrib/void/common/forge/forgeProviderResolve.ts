@@ -39,6 +39,12 @@ export function bindForgeProviderEndpoint(provider: ILocalProvider, userEndpoint
 		const bound = Object.create(Object.getPrototypeOf(provider)) as BaseHttpProvider;
 		Object.assign(bound, provider);
 		bound.endpointOverride = userEndpoint;
+		// customHeaders is mutable — clone so bound instances don't share state
+		// with the singleton or each other.
+		const headers = (provider as { customHeaders?: Record<string, string> }).customHeaders;
+		if (headers) {
+			(bound as { customHeaders?: Record<string, string> }).customHeaders = { ...headers };
+		}
 		return bound;
 	}
 	return provider;
@@ -67,10 +73,12 @@ export function resolveForgeProvider(providerName: ProviderName, settingsOfProvi
 	if (providerName === 'openAICompatible') {
 		const cfg = settingsOfProvider.openAICompatible;
 		const headers = parseHeadersJSON(cfg.headersJSON);
+		const rawEndpoint = (cfg.endpoint || '').trim();
+		if (!rawEndpoint) return undefined;
 		const provider = new OpenAICompatibleProvider({
 			id: 'openaicompatible',
 			displayName: 'Custom endpoint',
-			defaultEndpoint: cfg.endpoint.replace(/\/v1\/?$/, ''),
+			defaultEndpoint: rawEndpoint.replace(/\/v1\/?$/, ''),
 			apiKey: cfg.apiKey || 'noop',
 		});
 		if (headers) provider.customHeaders = headers;
