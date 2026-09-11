@@ -190,7 +190,7 @@ const computeAndStringifyDirectoryTree = async (
 
 
 	// Fetch and process children if not a filtered directory
-	if (eItem.isDirectory && !isGitIgnoredDirectory) {
+	if (eItem.isDirectory && !eItem.isSymbolicLink && !isGitIgnoredDirectory) {
 		// Fetch children with Modified sort order to show recently modified first
 		const eChildren = await resolveChildren(eItem.children, fileService)
 

@@ -125,6 +125,15 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		delete this.pullHooks.onError[requestId];
 	}
 
+	private _clearListHooks(provider: keyof typeof this.listHooks, requestId: string) {
+		delete this.listHooks[provider].success[requestId];
+		delete this.listHooks[provider].error[requestId];
+	}
+
+	private _errorMessage(error: unknown): string {
+		return error instanceof Error ? error.message : String(error)
+	}
+
 	sendLLMMessage(params: ServiceSendLLMMessageParams) {
 		const { onText, onFinalMessage, onError, onAbort, modelSelection, ...proxyParams } = params;
 
@@ -153,20 +162,25 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		this.llmMessageHooks.onAbort[requestId] = onAbort // used internally only
 
 		// params will be stripped of all its functions over the IPC channel
-		this.channel.call('sendLLMMessage', {
+		void this.channel.call('sendLLMMessage', {
 			...proxyParams,
 			requestId,
 			settingsOfProvider,
 			modelSelection,
 			mcpTools,
-		} satisfies MainSendLLMMessageParams);
+		} satisfies MainSendLLMMessageParams).catch(error => {
+			onError({ message: this._errorMessage(error), fullError: error instanceof Error ? error : null })
+			this._clearChannelHooks(requestId)
+		});
 
 		return requestId
 	}
 
 	abort(requestId: string) {
 		this.llmMessageHooks.onAbort[requestId]?.() // calling the abort hook here is instant (doesn't go over a channel)
-		this.channel.call('abort', { requestId } satisfies MainLLMMessageAbortParams);
+		void this.channel.call('abort', { requestId } satisfies MainLLMMessageAbortParams).catch(error => {
+			console.error('Failed to abort LLM request:', this._errorMessage(error))
+		});
 		this._clearChannelHooks(requestId)
 	}
 
@@ -181,12 +195,15 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		this.listHooks.ollama.success[requestId_] = onSuccess
 		this.listHooks.ollama.error[requestId_] = onError
 
-		this.channel.call('ollamaList', {
+		void this.channel.call('ollamaList', {
 			...proxyParams,
 			settingsOfProvider,
 			providerName: 'ollama',
 			requestId: requestId_,
-		} satisfies MainModelListParams<OllamaModelResponse>)
+		} satisfies MainModelListParams<OllamaModelResponse>).catch(error => {
+			onError({ error: this._errorMessage(error) })
+			this._clearListHooks('ollama', requestId_)
+		})
 	}
 
 
@@ -200,11 +217,14 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		this.listHooks.openAICompat.success[requestId_] = onSuccess
 		this.listHooks.openAICompat.error[requestId_] = onError
 
-		this.channel.call('openAICompatibleList', {
+		void this.channel.call('openAICompatibleList', {
 			...proxyParams,
 			settingsOfProvider,
 			requestId: requestId_,
-		} satisfies MainModelListParams<OpenaiCompatibleModelResponse>)
+		} satisfies MainModelListParams<OpenaiCompatibleModelResponse>).catch(error => {
+			onError({ error: this._errorMessage(error) })
+			this._clearListHooks('openAICompat', requestId_)
+		})
 	}
 
 	pullOllamaModel = (params: ServicePullModelParams): string => {
@@ -218,11 +238,14 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 		this.pullHooks.onSuccess[requestId_] = onSuccess;
 		this.pullHooks.onError[requestId_] = onError;
 
-		this.channel.call('pullOllamaModel', {
+		void this.channel.call('pullOllamaModel', {
 			modelName: params.modelName,
 			endpoint,
 			requestId: requestId_,
-		} satisfies MainPullModelParams);
+		} satisfies MainPullModelParams).catch(error => {
+			onError({ error: this._errorMessage(error) })
+			this._clearPullHooks(requestId_)
+		});
 
 		return requestId_;
 	}
@@ -242,4 +265,3 @@ export class LLMMessageService extends Disposable implements ILLMMessageService 
 }
 
 registerSingleton(ILLMMessageService, LLMMessageService, InstantiationType.Eager);
-

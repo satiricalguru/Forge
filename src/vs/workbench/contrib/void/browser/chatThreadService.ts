@@ -250,7 +250,7 @@ export interface IChatThreadService {
 	onDidChangeStreamState: Event<{ threadId: string }>
 
 	getCurrentThread(): ThreadType;
-	openNewThread(opts?: { agentType?: 'interactive' | 'background'; isAuto?: boolean }): void;
+	openNewThread(opts?: { agentType?: 'interactive' | 'background'; isAuto?: boolean; workspacePath?: string }): void;
 	switchToThread(threadId: string): void;
 
 	// thread selector

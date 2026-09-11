@@ -66,6 +66,16 @@ export class LocalProviderRegistryService extends Disposable implements ILocalPr
 		for (const p of this.registry.all()) {
 			this._health.set(p.id, { status: 'unknown' });
 		}
+
+		this._register(this.settingsService.onDidChangeState(() => {
+			this._backoffOfProviderId.clear();
+			void this._tickAll();
+		}));
+		this._register({ dispose: () => {
+			this._activeProbe?.cancel();
+			this._activeProbe?.dispose();
+			this._activeProbe = null;
+		} });
 	}
 
 	getHealth(providerId: string): ProviderHealth {
@@ -73,11 +83,11 @@ export class LocalProviderRegistryService extends Disposable implements ILocalPr
 	}
 
 	getAllHealth(): ReadonlyMap<string, ProviderHealth> {
-		return this._health;
+		return new Map(this._health);
 	}
 
 	async forceCheck(providerId: string): Promise<ProviderHealth> {
-		const provider = this.registry.get(providerId);
+		const provider = this.providerForId(providerId);
 		if (!provider) return { status: 'unknown' };
 		this._backoffOfProviderId.delete(providerId);
 		return this._probe(provider);
@@ -93,22 +103,22 @@ export class LocalProviderRegistryService extends Disposable implements ILocalPr
 	}
 
 	private async _tickAll(): Promise<void> {
-		// cancel any in-flight probe so we don't pile them up
-		if (this._activeProbe) {
-			this._activeProbe.cancel();
-			this._activeProbe = null;
-		}
+		// One concurrent batch is enough; each provider also has its own single-flight chain.
+		if (this._activeProbe) return;
 		const cts = new CancellationTokenSource();
 		this._activeProbe = cts;
 		const now = Date.now();
-
-		for (const provider of this.registry.all()) {
-			if (cts.token.isCancellationRequested) return;
-
-			const backoff = this._backoffOfProviderId.get(provider.id);
-			if (backoff && now < backoff.nextProbeAt) continue;
-
-			await this._probe(provider, cts.token);
+		try {
+			await Promise.all(this.registry.all().map(async baseProvider => {
+				if (cts.token.isCancellationRequested) return;
+				const backoff = this._backoffOfProviderId.get(baseProvider.id);
+				if (backoff && now < backoff.nextProbeAt) return;
+				const provider = this.providerForId(baseProvider.id) ?? baseProvider;
+				await this._probe(provider, cts.token);
+			}));
+		} finally {
+			if (this._activeProbe === cts) this._activeProbe = null;
+			cts.dispose();
 		}
 	}
 
@@ -140,14 +150,12 @@ export class LocalProviderRegistryService extends Disposable implements ILocalPr
 		// Enforce the timeout against the whole probe (including JSON body reads
 		// that fetch()'s own timer no longer covers once headers arrived).
 		let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
-		const cleanup = () => { if (timeoutTimer) clearTimeout(timeoutTimer); };
 		const waitForTimeout = new Promise<never>((_, reject) => {
 			timeoutTimer = setTimeout(() => {
 				localCts.cancel();
 				reject(new Error(`Health check for ${provider.id} exceeded ${HEALTH_PROBE_TIMEOUT_MS}ms`));
 			}, HEALTH_PROBE_TIMEOUT_MS);
 		});
-		const cancelListener = localCts.token.onCancellationRequested(() => cleanup());
 
 		try {
 			const result = await Promise.race([
@@ -157,10 +165,7 @@ export class LocalProviderRegistryService extends Disposable implements ILocalPr
 				}),
 				waitForTimeout,
 			]);
-			if (timeoutTimer) clearTimeout(timeoutTimer);
 			const latency = Date.now() - start;
-			localCts.dispose();
-			cancelListener.dispose();
 
 			let health: ProviderHealth;
 			if (result.status === 'healthy') {
@@ -176,12 +181,13 @@ export class LocalProviderRegistryService extends Disposable implements ILocalPr
 			this._setHealth(provider.id, health);
 			return health;
 		} catch (err) {
-			localCts.dispose();
-			cancelListener.dispose();
 			const health: ProviderHealth = { status: 'unhealthy', error: (err instanceof Error ? err.message : String(err)), latencyMs: Date.now() - start };
 			this._setHealth(provider.id, health);
 			this._scheduleBackoff(provider.id);
 			return health;
+		} finally {
+			if (timeoutTimer) clearTimeout(timeoutTimer);
+			localCts.dispose();
 		}
 	}
 

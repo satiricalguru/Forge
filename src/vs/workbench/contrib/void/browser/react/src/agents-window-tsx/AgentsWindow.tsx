@@ -8,7 +8,7 @@ import '../styles.css';
 import { URI } from '../../../../../../../base/common/uri.js';
 import { useAccessor, useChatThreadsState, useFullChatThreadsStreamState, useSettingsState, useMCPServiceState, useCommandBarState, useIsDark } from '../util/services.js';
 import { ModelSelection } from '../../../../common/voidSettingsTypes.js';
-import { IAgentSession, PermissionLevel, AgentType } from '../../../../common/sessionRegistryTypes.js';
+import { IAgentSession, PermissionLevel } from '../../../../common/sessionRegistryTypes.js';
 import { ISkill } from '../../../../common/skillsService.js';
 import { ChatMarkdownRender } from '../markdown/ChatMarkdownRender.js';
 import { VOID_OPEN_SETTINGS_ACTION_ID } from '../../../voidSettingsPane.js';
@@ -192,20 +192,8 @@ const ApprovalsDropdown = ({ approvalLevel, setApprovalLevel, direction = 'up' }
     {
       level: 'default' as PermissionLevel,
       title: 'Default Approvals',
-      desc: 'Copilot uses your configured settings',
+      desc: 'Forge uses your configured tool-approval settings',
       icon: 'shield'
-    },
-    {
-      level: 'bypass' as PermissionLevel,
-      title: 'Bypass Approvals',
-      desc: 'All tool calls are auto-approved',
-      icon: 'warning'
-    },
-    {
-      level: 'autopilot' as PermissionLevel,
-      title: 'Autopilot (Preview)',
-      desc: 'Autonomously iterates from start to finish',
-      icon: 'rocket'
     }
   ];
 
@@ -214,7 +202,7 @@ const ApprovalsDropdown = ({ approvalLevel, setApprovalLevel, direction = 'up' }
   const handleLearnMore = () => {
     try {
       const notificationService = accessor.get('INotificationService');
-      notificationService.info('Default approvals utilize settings defined in Void Settings. Bypass auto-approves all filesystem read/write and terminal actions. Autopilot runs tasks autonomously.');
+      notificationService.info('Agent sessions use the tool-approval policy configured in Forge Settings. Per-session approval bypass is not enabled.');
     } catch {}
     setOpen(false);
   };
@@ -578,7 +566,7 @@ export const AgentsWindow = () => {
 
   // ── UI state ─────────────────────────────────────────────────────────────
   const [activeSession, setActiveSession] = useState<string | null>(null);
-  const [agentMode, setAgentMode] = useState<AgentType>('interactive');
+  const [agentMode, setAgentMode] = useState<'interactive' | 'background'>('interactive');
   const [isAuto, setIsAuto] = useState(false);
   const [approvalLevel, setApprovalLevel] = useState<PermissionLevel>('default');
   const [prompt, setPrompt] = useState('');
@@ -716,7 +704,7 @@ export const AgentsWindow = () => {
   // ── Handlers ─────────────────────────────────────────────────────────────
   const handleCreateSession = async () => {
     if (!prompt.trim()) return;
-    chatThreadsService.openNewThread({ agentType: agentMode, isAuto });
+    chatThreadsService.openNewThread({ agentType: agentMode, isAuto, workspacePath: selectedFolder?.fsPath });
     const t = chatThreadsService.getCurrentThread();
     if (!t) return;
 
@@ -801,26 +789,26 @@ export const AgentsWindow = () => {
         height: 35, flexShrink: 0, paddingLeft: isMac ? 78 : 12, paddingRight: 8,
         background: 'var(--vscode-titleBar-activeBackground)',
         color: 'var(--vscode-titleBar-activeForeground)',
-        borderBottom: `1px solid ${B}`, WebkitAppRegion: 'drag' as any
+        borderBottom: `1px solid ${B}`, ...({ WebkitAppRegion: 'drag' } as React.CSSProperties)
       }}>
         {/* Left: nav */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, WebkitAppRegion: 'no-drag' as any }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, ...({ WebkitAppRegion: 'no-drag' } as React.CSSProperties) }}>
           <SidebarBtn icon={isLeftSidebarVisible ? 'layout-sidebar-left' : 'layout-sidebar-right'} label="Toggle Sidebar" onClick={() => setIsLeftSidebarVisible(v => !v)} />
         </div>
 
         {/* Center: breadcrumb */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, WebkitAppRegion: 'no-drag' as any }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, ...({ WebkitAppRegion: 'no-drag' } as React.CSSProperties) }}>
           <ForgeIcon name="sparkle" size={14} style={{ opacity: 0.6 }} />
           <span>
             {activeSession
-              ? `${activeThread?.messages?.[0]?.content?.slice(0, 30) || 'Session'} · ${currentWorkspace}`
+              ? `${activeThread?.messages?.find(message => message.role === 'user')?.displayContent?.slice(0, 30) || 'Session'} · ${currentWorkspace}`
               : `New Session · ${currentWorkspace}`
             }
           </span>
         </div>
 
         {/* Right: actions */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 2, WebkitAppRegion: 'no-drag' as any }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2, ...({ WebkitAppRegion: 'no-drag' } as React.CSSProperties) }}>
           <SidebarBtn icon={'play'} label="Focus composer" onClick={focusComposer} />
           <SidebarBtn icon={'debug-disconnect'} label="Stop generation" onClick={handleStop} disabled={!isStreaming} />
           <span style={{ width: 8 }} />
@@ -1181,7 +1169,7 @@ export const AgentsWindow = () => {
                         <button
                           onClick={() => {
                             try {
-                              chatThreadsService.dismissStreamError(activeSession);
+                              if (activeSession) chatThreadsService.dismissStreamError(activeSession);
                             } catch {}
                           }}
                           style={{

@@ -10,6 +10,7 @@
 		"jsx": "react-jsx",
 		"moduleResolution": "NodeNext",
 		"module": "NodeNext",
+		"allowJs": true,
 		"esModuleInterop": true,
 		"experimentalDecorators": true,
 		"useDefineForClassFields": false

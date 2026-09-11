@@ -9,10 +9,14 @@ import * as os from 'os';
 
 import { Emitter } from '../../../../base/common/event.js';
 import {
+	AgentType,
 	IAgentSession,
+	PermissionLevel,
+	SessionStatus,
 	ISessionCreateOpts,
 	ISessionChangedEvent,
 	ISessionRegistryService,
+	ISessionUpdatePatch,
 } from '../common/sessionRegistryTypes.js';
 
 /**
@@ -32,8 +36,8 @@ export class SessionRegistryMainService implements ISessionRegistryService {
 	/** In-flight/complete load promise so concurrent callers can't race the scan */
 	private _loadingPromise: Promise<void> | undefined;
 
-	constructor() {
-		this._sessionsDir = path.join(os.homedir(), '.forge', 'sessions');
+	constructor(sessionsDir = path.join(os.homedir(), '.forge', 'sessions')) {
+		this._sessionsDir = sessionsDir;
 		this._ensureDir(this._sessionsDir);
 	}
 
@@ -85,14 +89,15 @@ export class SessionRegistryMainService implements ISessionRegistryService {
 		return session;
 	}
 
-	async update(id: string, patch: Partial<IAgentSession>): Promise<void> {
+	async update(id: string, patch: ISessionUpdatePatch): Promise<void> {
 		await this._ensureLoaded();
 		if (!this._isValidId(id)) return;
 		const session = this._sessions.get(id);
 		if (!session) return;
 
-		Object.assign(session, patch, { updatedAt: Date.now() });
-		await this._persist(session);
+		const next = this._applyUpdatePatch(session, patch);
+		this._sessions.set(id, next);
+		await this._persist(next);
 		this._onDidChangeSessions.fire({ changed: [id], removed: [] });
 	}
 
@@ -239,6 +244,27 @@ export class SessionRegistryMainService implements ISessionRegistryService {
 		if (typeof id !== 'string' || id.length === 0 || id.length > 200) return false;
 		// block path separators and traversal so ids can't escape the sessions dir
 		return !/[\\/\0]/.test(id) && !id.includes('..');
+	}
+
+	private _applyUpdatePatch(session: IAgentSession, patch: ISessionUpdatePatch): IAgentSession {
+		const next = { ...session, updatedAt: Date.now() };
+		const agentTypes: AgentType[] = ['interactive', 'background', 'remote'];
+		const statuses: SessionStatus[] = ['running', 'awaiting-input', 'done', 'error', 'archived'];
+		const permissions: PermissionLevel[] = ['default', 'bypass', 'autopilot'];
+
+		if (typeof patch.title === 'string') next.title = patch.title;
+		if (typeof patch.pinned === 'boolean') next.pinned = patch.pinned;
+		if (typeof patch.providerId === 'string') next.providerId = patch.providerId;
+		if (typeof patch.modelId === 'string') next.modelId = patch.modelId;
+		if ('worktreePath' in patch && (patch.worktreePath === undefined || typeof patch.worktreePath === 'string')) next.worktreePath = patch.worktreePath;
+		if (patch.agentType && agentTypes.includes(patch.agentType)) next.agentType = patch.agentType;
+		if (patch.status && statuses.includes(patch.status)) next.status = patch.status;
+		if (patch.permissionLevel && permissions.includes(patch.permissionLevel)) next.permissionLevel = patch.permissionLevel;
+		if (patch.fileChangeStats
+			&& ['added', 'modified', 'deleted'].every(key => Number.isSafeInteger(patch.fileChangeStats?.[key as keyof typeof patch.fileChangeStats]) && patch.fileChangeStats![key as keyof typeof patch.fileChangeStats] >= 0)) {
+			next.fileChangeStats = { ...patch.fileChangeStats };
+		}
+		return next;
 	}
 
 	private _ensureDir(dirPath: string): void {

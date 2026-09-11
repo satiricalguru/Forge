@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react'
 import { MCPUserState, RefreshableProviderName, SettingsOfProvider } from '../../../../../../../workbench/contrib/void/common/voidSettingsTypes.js'
-import { DisposableStore, IDisposable } from '../../../../../../../base/common/lifecycle.js'
+import { DisposableStore, IDisposable, toDisposable } from '../../../../../../../base/common/lifecycle.js'
 import { VoidSettingsState } from '../../../../../../../workbench/contrib/void/common/voidSettingsService.js'
 import { ColorScheme } from '../../../../../../../platform/theme/common/theme.js'
 import { RefreshModelStateOfProvider } from '../../../../../../../workbench/contrib/void/common/refreshModelService.js'
@@ -205,7 +205,7 @@ export const _registerServices = (accessor: ServicesAccessor) => {
 
 	// last disposable resets the guard so a later mount re-registers
 	// (listeners were just disposed by the mountFnGenerator)
-	disposables.push(() => { _servicesRegistered = false; })
+	disposables.push(toDisposable(() => { _servicesRegistered = false; }))
 
 	return disposables
 }

@@ -48,7 +48,7 @@ Forge uses the open-source **Open VSX Registry** instead of the proprietary Micr
   - ● **Amber:** Checking connection status.
   - ● **Red:** Connection error/offline.
   - ● **Grey:** Disabled/Unknown.
-- **Defence-in-Depth HTTP Guard:** To guarantee your code privacy, Forge's network utilities refuse to send outgoing requests to non-localhost URLs. Your prompt data is physically locked inside your machine.
+- **Defence-in-Depth HTTP Guard:** Forge's local-provider network utilities accept loopback and explicitly configured private-LAN endpoints, while rejecting public internet destinations. Treat private-LAN providers as trusted because prompts and code are sent to them.
 - **Redesigned Agents Window:** A dedicated 3-panel workspace interface (Copilot-style) to manage autonomous AI coding agents:
   - **Left Sidebar**: Session thread browser and Customizations panel with quick emojis (Overview, Agents, Skills, Instructions, Hooks, MCP, Plugins, Tools).
   - **Center Panel**: The core chat stream, welcome roadmap, auto-approval toggles, and token stream.

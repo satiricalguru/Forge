@@ -4,7 +4,9 @@
  *--------------------------------------------------------------------------------------*/
 
 import React, { forwardRef, ForwardRefExoticComponent, MutableRefObject, RefAttributes, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import { IInputBoxStyles } from '../../../../../../../base/browser/ui/inputbox/inputBox.js';
+import { IInputBoxStyles, InputBox } from '../../../../../../../base/browser/ui/inputbox/inputBox.js';
+import { Checkbox } from '../../../../../../../base/browser/ui/toggle/toggle.js';
+import { SelectBox } from '../../../../../../../base/browser/ui/selectBox/selectBox.js';
 import { IDisposable } from '../../../../../../../base/common/lifecycle.js';
 
 import { CodeEditorWidget } from '../../../../../../../editor/browser/widget/codeEditor/codeEditorWidget.js'
@@ -22,6 +24,7 @@ import { extractSearchReplaceBlocks, ExtractedSearchReplaceBlock } from '../../.
 import { IAccessibilitySignalService } from '../../../../../../../platform/accessibilitySignal/browser/accessibilitySignalService.js';
 import { IEditorProgressService } from '../../../../../../../platform/progress/common/progress.js';
 import { detectLanguage } from '../../../../common/helpers/languageHelpers.js';
+import { defaultCheckboxStyles, defaultInputBoxStyles, defaultSelectBoxStyles } from '../../../../../../../platform/theme/browser/defaultStyles.js';
 
 
 // type guard
@@ -2013,5 +2016,4 @@ export const VoidDiffEditor = ({ uri, searchReplaceBlocks, language }: { uri?: a
 		</div>
 	);
 };
-
 

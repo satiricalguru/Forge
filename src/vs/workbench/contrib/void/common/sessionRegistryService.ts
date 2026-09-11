@@ -12,6 +12,7 @@ import {
 	ISessionCreateOpts,
 	ISessionChangedEvent,
 	ISessionRegistryService,
+	ISessionUpdatePatch,
 } from './sessionRegistryTypes.js';
 
 /**
@@ -81,7 +82,7 @@ export class SessionRegistryService implements ISessionRegistryService {
 		return session;
 	}
 
-	async update(id: string, patch: Partial<IAgentSession>): Promise<void> {
+	async update(id: string, patch: ISessionUpdatePatch): Promise<void> {
 		await this._proxy.update(id, patch);
 		// Update local cache
 		const idx = this._cache.findIndex(s => s.id === id);

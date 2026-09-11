@@ -123,7 +123,7 @@ export interface MCPConfigFileEntryJSON {
 	env?: Record<string, string>;
 
 	// URL-based server properties
-	url?: URL;
+	url?: string;
 	headers?: Record<string, string>;
 }
 

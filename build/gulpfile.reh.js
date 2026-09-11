@@ -185,7 +185,7 @@ if (defaultNodeTask) {
 
 function nodejs(platform, arch) {
 	const { fetchUrls, fetchGithub } = require('./lib/fetch');
-	const untar = require('gulp-untar');
+	const untar = require('./lib/untar');
 
 	if (arch === 'armhf') {
 		arch = 'armv7l';

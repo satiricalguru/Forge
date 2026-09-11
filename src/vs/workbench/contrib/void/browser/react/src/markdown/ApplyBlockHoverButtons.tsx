@@ -280,19 +280,15 @@ const ApplyButtonsForTerminal = ({
 		try {
 			setIsShellRunning(true)
 			const terminalId = await terminalToolService.createPersistentTerminal({ cwd: null })
-			const { interrupt, promise } = await terminalToolService.runCommand(
+			const { interrupt, resPromise } = await terminalToolService.runCommand(
 				codeStr,
 				{ type: 'persistent', persistentTerminalId: terminalId }
 			);
 			interruptToolRef.current = interrupt
 			metricsService.capture('Execute Shell', { length: codeStr.length })
-			if (promise) {
-				promise.finally(() => {
-					setIsShellRunning(false)
-				})
-			} else {
+			await resPromise.finally(() => {
 				setIsShellRunning(false)
-			}
+			})
 		} catch (e) {
 			setIsShellRunning(false)
 			console.error('Failed to execute in terminal:', e)
@@ -347,7 +343,7 @@ const ApplyButtonsForEdit = ({
 	const onClickSubmit = useCallback(async () => {
 		if (currStreamStateRef.current === 'streaming') return
 
-		await editCodeService.callBeforeApplyOrEdit(uri)
+		await editCodeService.callBeforeApplyOrEdit({ from: 'ClickApply', uri })
 
 		const [newApplyingUri, applyDonePromise] = editCodeService.startApplying({
 			from: 'ClickApply',
