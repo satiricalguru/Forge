@@ -895,7 +895,7 @@ const ToolHeaderWrapper = ({
 
 const EditTool = ({ toolMessage, threadId, messageIdx, content }: Parameters<ResultWrapper<'edit_file' | 'rewrite_file'>>[0] & { content: string }) => {
 	const accessor = useAccessor()
-	const isError = toolMessage.type === 'error'
+	const isError = toolMessage.type === 'tool_error'
 	const isRejected = toolMessage.type === 'rejected'
 
 	const title = getTitle(toolMessage)

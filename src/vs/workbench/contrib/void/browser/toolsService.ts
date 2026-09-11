@@ -19,6 +19,7 @@ import { RawToolParamsObj } from '../common/sendLLMMessageTypes.js'
 import { MAX_CHILDREN_URIs_PAGE, MAX_FILE_CHARS_PAGE, MAX_TERMINAL_BG_COMMAND_TIME, MAX_TERMINAL_INACTIVE_TIME } from '../common/prompt/prompts.js'
 import { IVoidSettingsService } from '../common/voidSettingsService.js'
 import { generateUuid } from '../../../../base/common/uuid.js'
+import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js'
 
 
 // tool use for AI
@@ -154,39 +155,54 @@ export class ToolsService implements IToolsService {
 		@IDirectoryStrService private readonly directoryStrService: IDirectoryStrService,
 		@IMarkerService private readonly markerService: IMarkerService,
 		@IVoidSettingsService private readonly voidSettingsService: IVoidSettingsService,
+		@IUriIdentityService uriIdentityService: IUriIdentityService,
 	) {
 		const queryBuilder = instantiationService.createInstance(QueryBuilder);
 
-		// Forge: workspace containment. LLM file tools may only touch files inside
-		// an open workspace folder (symlink/path-traversal guard is best-effort at
-		// this layer — fileService resolves symlinks; we compare normalized paths).
-		// Single-file mode (no folders open) allows access so Void still works.
+		// Forge: workspace containment. Canonical URI identity handles traversal,
+		// platform casing, separators, schemes, and remote authorities consistently.
 		const assertUriInWorkspace = (uri: URI): URI => {
 			const folders = workspaceContextService.getWorkspace().folders;
-			if (folders.length === 0) return uri;
-			if (uri.scheme !== 'file' && uri.scheme !== 'vscode-remote') return uri;
+			if (folders.length === 0) {
+				throw new Error('Forge file tools require an open workspace folder.');
+			}
+			const target = uriIdentityService.asCanonicalUri(uri);
 			for (const f of folders) {
-				if (f.uri.scheme !== uri.scheme) continue;
-				if ((f.uri.authority || '') !== (uri.authority || '')) continue;
-				const root = f.uri.fsPath.replace(/\/+$/, '');
-				const target = uri.fsPath;
-				if (target === root || target.startsWith(root + '/')) return uri;
+				const root = uriIdentityService.asCanonicalUri(f.uri);
+				if (uriIdentityService.extUri.isEqualOrParent(target, root)) return target;
 			}
 			throw new Error(`Refusing access outside the open workspace: ${uri.fsPath || uri.toString()} (Forge file tools are workspace-scoped)`);
+		};
+		const assertNoNestedSymlinks = async (uri: URI): Promise<void> => {
+			const target = assertUriInWorkspace(uri);
+			const root = workspaceContextService.getWorkspace().folders
+				.map(folder => uriIdentityService.asCanonicalUri(folder.uri))
+				.find(folder => uriIdentityService.extUri.isEqualOrParent(target, folder));
+			if (!root || target.scheme !== 'file') return;
+			const relativePath = uriIdentityService.extUri.relativePath(root, target);
+			if (!relativePath) return;
+			let current = root;
+			for (const segment of relativePath.split('/').filter(Boolean)) {
+				current = URI.joinPath(current, segment);
+				if (!await fileService.exists(current)) break;
+				if ((await fileService.stat(current)).isSymbolicLink) {
+					throw new Error(`Refusing access through a symbolic link: ${current.fsPath} (Forge file tools are workspace-scoped)`);
+				}
+			}
 		};
 		const validateWorkspaceURI = (uriStr: unknown): URI => assertUriInWorkspace(validateURI(uriStr));
 		const assertCwdInWorkspace = (cwd: string): string => {
 			const folders = workspaceContextService.getWorkspace().folders;
-			if (folders.length === 0) return cwd;
-			// Relative cwds resolve against the workspace — allow.
-			if (!cwd.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(cwd) && !cwd.startsWith('\\\\')) return cwd;
-			const normalized = cwd.replace(/\/+$/, '');
-			for (const f of folders) {
-				if (f.uri.scheme !== 'file') continue;
-				const root = f.uri.fsPath.replace(/\/+$/, '');
-				if (normalized === root || normalized.startsWith(root + '/')) return cwd;
+			if (folders.length === 0) throw new Error('Forge terminals require an open workspace folder.');
+			const root = uriIdentityService.asCanonicalUri(folders[0].uri);
+			const isAbsolute = cwd.startsWith('/') || /^[A-Za-z]:[\\/]/.test(cwd) || cwd.startsWith('\\\\');
+			const candidate = isAbsolute
+				? uriIdentityService.asCanonicalUri(root.with({ path: URI.file(cwd).path }))
+				: uriIdentityService.asCanonicalUri(URI.joinPath(root, cwd));
+			if (!uriIdentityService.extUri.isEqualOrParent(candidate, root)) {
+				throw new Error(`Refusing terminal cwd outside the open workspace: ${cwd} (Forge terminals are workspace-scoped)`);
 			}
-			throw new Error(`Refusing terminal cwd outside the open workspace: ${cwd} (Forge terminals are workspace-scoped)`);
+			return candidate.fsPath;
 		};
 
 		this.validateParams = {
@@ -331,6 +347,7 @@ export class ToolsService implements IToolsService {
 
 		this.callTool = {
 			read_file: async ({ uri, startLine, endLine, pageNumber }) => {
+				await assertNoNestedSymlinks(uri)
 				await voidModelService.initializeModel(uri)
 				const { model } = await voidModelService.getModelSafe(uri)
 				if (model === null) { throw new Error(`No contents; File does not exist.`) }
@@ -356,11 +373,13 @@ export class ToolsService implements IToolsService {
 			},
 
 			ls_dir: async ({ uri, pageNumber }) => {
+				await assertNoNestedSymlinks(uri)
 				const dirResult = await computeDirectoryTree1Deep(fileService, uri, pageNumber)
 				return { result: dirResult }
 			},
 
 			get_dir_tree: async ({ uri }) => {
+				await assertNoNestedSymlinks(uri)
 				const str = await this.directoryStrService.getDirectoryStrTool(uri)
 				return { result: { str } }
 			},
@@ -385,6 +404,7 @@ export class ToolsService implements IToolsService {
 			},
 
 			search_for_files: async ({ query: queryStr, isRegex, searchInFolder, pageNumber }) => {
+				if (searchInFolder) await assertNoNestedSymlinks(searchInFolder)
 				const searchFolders = searchInFolder === null ?
 					workspaceContextService.getWorkspace().folders.map(f => f.uri)
 					: [searchInFolder]
@@ -406,6 +426,7 @@ export class ToolsService implements IToolsService {
 				return { result: { queryStr, uris, hasNextPage } }
 			},
 			search_in_file: async ({ uri, query, isRegex }) => {
+				await assertNoNestedSymlinks(uri)
 				await voidModelService.initializeModel(uri);
 				const { model } = await voidModelService.getModelSafe(uri);
 				if (model === null) { throw new Error(`No contents; File does not exist.`); }
@@ -425,6 +446,7 @@ export class ToolsService implements IToolsService {
 			},
 
 			read_lint_errors: async ({ uri }) => {
+				await assertNoNestedSymlinks(uri)
 				await timeout(1000)
 				const { lintErrors } = this._getLintErrors(uri)
 				return { result: { lintErrors } }
@@ -433,6 +455,7 @@ export class ToolsService implements IToolsService {
 			// ---
 
 			create_file_or_folder: async ({ uri, isFolder }) => {
+				await assertNoNestedSymlinks(uri)
 				if (isFolder)
 					await fileService.createFolder(uri)
 				else {
@@ -442,16 +465,18 @@ export class ToolsService implements IToolsService {
 			},
 
 			delete_file_or_folder: async ({ uri, isRecursive }) => {
+				await assertNoNestedSymlinks(uri)
 				await fileService.del(uri, { recursive: isRecursive })
 				return { result: {} }
 			},
 
 			rewrite_file: async ({ uri, newContent }) => {
+				await assertNoNestedSymlinks(uri)
 				await voidModelService.initializeModel(uri)
 				if (this.commandBarService.getStreamState(uri) === 'streaming') {
 					throw new Error(`Another LLM is currently making changes to this file. Please stop streaming for now and ask the user to resume later.`)
 				}
-				await editCodeService.callBeforeApplyOrEdit(uri)
+				await editCodeService.callBeforeApplyOrEdit({ from: 'ClickApply', uri })
 				editCodeService.instantlyRewriteFile({ uri, newContent })
 				// at end, get lint errors
 				const lintErrorsPromise = Promise.resolve().then(async () => {
@@ -463,11 +488,12 @@ export class ToolsService implements IToolsService {
 			},
 
 			edit_file: async ({ uri, searchReplaceBlocks }) => {
+				await assertNoNestedSymlinks(uri)
 				await voidModelService.initializeModel(uri)
 				if (this.commandBarService.getStreamState(uri) === 'streaming') {
 					throw new Error(`Another LLM is currently making changes to this file. Please stop streaming for now and ask the user to resume later.`)
 				}
-				await editCodeService.callBeforeApplyOrEdit(uri)
+				await editCodeService.callBeforeApplyOrEdit({ from: 'ClickApply', uri })
 				editCodeService.instantlyApplySearchReplaceBlocks({ uri, searchReplaceBlocks })
 
 				// at end, get lint errors

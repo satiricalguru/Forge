@@ -81,7 +81,7 @@ export function assertLocalUrl(url: string) {
 	// wildcard LAN ranges are intentionally allowed for self-hosted runtimes
 	// on the local network; DNS-rebinding of public names to local IPs is an
 	// accepted residual risk for a desktop IDE (documented, single-layer).
-	const isLocal = h === 'localhost' || h === '::1' || h === '0.0.0.0'
+	const isLocal = h === 'localhost' || h === '::1' || h === '[::1]' || h === '0.0.0.0'
 		|| /^127\.(\d{1,3}\.){2}\d{1,3}$/.test(h)
 		|| h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.lan')
 		|| /^10\./.test(h)

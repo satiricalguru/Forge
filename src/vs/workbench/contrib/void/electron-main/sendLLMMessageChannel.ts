@@ -122,10 +122,18 @@ export class LLMMessageChannel implements IServerChannel {
 		}
 		const p = sendLLMMessage(mainThreadParams);
 		this._infoOfRunningRequest[requestId].waitForSend = p
-		p.finally(() => {
-			// safety net: if neither onFinalMessage nor onError fired (e.g. an
-			// unexpected early return), make sure the entry doesn't leak
+		void p.then(() => {
+			// Safety net for an unexpected early return without a terminal event.
 			delete this._infoOfRunningRequest[requestId];
+		}, error => {
+			if (requestId in this._infoOfRunningRequest) {
+				this.llmMessageEmitters.onError.fire({
+					requestId,
+					message: error instanceof Error ? error.message : String(error),
+					fullError: error instanceof Error ? error : null,
+				});
+				delete this._infoOfRunningRequest[requestId];
+			}
 		});
 	}
 
@@ -184,7 +192,11 @@ export class LLMMessageChannel implements IServerChannel {
 			this.pullEmitters.onError.fire({ requestId, error: err instanceof Error ? err.message : String(err) });
 			return;
 		}
-		let reader: { read(): Promise<{ value: Uint8Array | undefined; done: boolean }>; cancel(reason?: unknown): Promise<void>; releaseLock(): void } | undefined;
+		let reader: {
+			read(): Promise<{ done: boolean; value?: Uint8Array }>;
+			cancel(reason?: unknown): Promise<void>;
+			releaseLock(): void;
+		} | undefined;
 		try {
 			const normalizedEndpoint = endpoint.replace(/\/+$/, '');
 			const pullAbort = AbortSignal.timeout(30 * 60_000);

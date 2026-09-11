@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import './style.js';
-import { runWhenWindowIdle, mainWindow } from '../../base/browser/dom.js';
+import { runWhenWindowIdle } from '../../base/browser/dom.js';
 import { Event, Emitter, setGlobalLeakWarningThreshold } from '../../base/common/event.js';
 import { RunOnceScheduler, timeout } from '../../base/common/async.js';
 import { isFirefox, isSafari, isChrome } from '../../base/browser/browser.js';

@@ -14,7 +14,7 @@ import { Stream } from 'stream';
 import File from 'vinyl';
 import { createStatsStream } from './stats';
 import * as util2 from './util';
-const vzip = require('gulp-vinyl-zip');
+const vzip = require('@vscode/gulp-vinyl-zip');
 import filter from 'gulp-filter';
 import rename from 'gulp-rename';
 import fancyLog from 'fancy-log';

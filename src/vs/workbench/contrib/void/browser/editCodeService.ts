@@ -1123,8 +1123,8 @@ class EditCodeService extends Disposable implements IEditCodeService {
 		return
 	}
 
-	public async callBeforeApplyOrEdit(givenURI: URI | 'current') {
-		const uri = this._uriOfGivenURI(givenURI)
+	public async callBeforeApplyOrEdit(opts: CallBeforeStartApplyingOpts) {
+		const uri = this._getURIBeforeStartApplying(opts)
 		if (!uri) return
 		await this._voidModelService.initializeModel(uri)
 		await this._voidModelService.saveModel(uri) // save the URI
@@ -1976,8 +1976,8 @@ class EditCodeService extends Disposable implements IEditCodeService {
 							onDone()
 							resMessageDonePromise()
 						}
-						catch (e) {
-							onError(e)
+							catch (e) {
+								onError({ message: e instanceof Error ? e.message : String(e), fullError: e instanceof Error ? e : null })
 						}
 					},
 					onError: (e) => {
@@ -2456,8 +2456,6 @@ class AcceptRejectInlineWidget extends Widget implements IOverlayWidget {
 	}
 
 }
-
-
 
 
 

@@ -54,6 +54,7 @@ const refreshBasedOn: { [k in RefreshableProviderName]: (keyof SettingsOfProvide
 	// openAICompatible: ['_didFillInProviderSettings', 'endpoint', 'apiKey'],
 }
 const REFRESH_INTERVAL = 5_000
+const LIST_IPC_TIMEOUT_MS = 10_000
 // const COOLDOWN_TIMEOUT = 300
 
 const autoOptions = { enableProviderOnSuccess: true, doNotFire: true }
@@ -265,4 +266,3 @@ export class RefreshModelService extends Disposable implements IRefreshModelServ
 }
 
 registerSingleton(IRefreshModelService, RefreshModelService, InstantiationType.Eager);
-

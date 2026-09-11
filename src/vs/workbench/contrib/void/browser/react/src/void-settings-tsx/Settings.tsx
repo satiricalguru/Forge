@@ -839,11 +839,9 @@ const FastApplyMethodDropdown = () => {
 }
 
 
-import { ILLMMessageService } from '../../../../../../../workbench/contrib/void/common/sendLLMMessageService.js'
-
 export const OllamaPullModelUI = () => {
 	const accessor = useAccessor();
-	const llmMessageService = accessor.get(ILLMMessageService);
+	const llmMessageService = accessor.get('ILLMMessageService');
 	const [modelName, setModelName] = useState('');
 	const [status, setStatus] = useState('');
 	const [progress, setProgress] = useState(-1);

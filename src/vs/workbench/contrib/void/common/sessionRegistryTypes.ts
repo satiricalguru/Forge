@@ -41,6 +41,13 @@ export interface ISessionCreateOpts {
 	worktreePath?: string;
 }
 
+/** Fields callers may change after a session is created. Identity and storage
+ * location fields are deliberately immutable across the IPC boundary. */
+export type ISessionUpdatePatch = Partial<Pick<IAgentSession,
+	'agentType' | 'title' | 'status' | 'pinned' | 'providerId' | 'modelId' |
+	'permissionLevel' | 'worktreePath' | 'fileChangeStats'
+>>;
+
 export interface ISessionChangedEvent {
 	changed: string[];     // session IDs that were created/updated
 	removed: string[];     // session IDs that were removed
@@ -54,7 +61,7 @@ export interface ISessionRegistryService {
 	list(filter?: { workspacePath?: string }): Promise<IAgentSession[]>;
 	get(id: string): Promise<IAgentSession | undefined>;
 	create(opts: ISessionCreateOpts): Promise<IAgentSession>;
-	update(id: string, patch: Partial<IAgentSession>): Promise<void>;
+	update(id: string, patch: ISessionUpdatePatch): Promise<void>;
 	archive(id: string): Promise<void>;
 	remove(id: string): Promise<void>;
 

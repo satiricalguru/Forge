@@ -134,6 +134,7 @@ export class ForgeLanguageModelBridge extends Disposable implements IForgeLangua
 
 	/** Identifiers currently registered per provider (used to disambiguate slug collisions). */
 	private readonly _registeredIdsByProvider = new Map<string, Set<string>>();
+	private readonly _generationByProvider = new Map<string, number>();
 
 	constructor(
 		@ILocalProviderRegistryService private readonly _providerRegistryService: ILocalProviderRegistryService,
@@ -155,6 +156,7 @@ export class ForgeLanguageModelBridge extends Disposable implements IForgeLangua
 					// changed and still catches models being pulled/removed.
 					this._syncProvider(providerId);
 				} else if (health.status === 'unhealthy') {
+					this._generationByProvider.set(providerId, (this._generationByProvider.get(providerId) ?? 0) + 1);
 					this._teardownProvider(providerId);
 				}
 			})
@@ -182,9 +184,10 @@ export class ForgeLanguageModelBridge extends Disposable implements IForgeLangua
 
 	/** Serialized, coalesced entry point for `_syncProvider`. */
 	private _syncProvider(providerId: string): void {
+		const generation = this._generationByProvider.get(providerId) ?? 0;
 		const previous = this._syncChainByProvider.get(providerId) ?? Promise.resolve();
 		const chain = previous
-			.then(() => this._doSyncProvider(providerId))
+			.then(() => this._doSyncProvider(providerId, generation))
 			.catch(err => this._log.warn(`[ForgeLanguageModelBridge] _syncProvider(${providerId}) failed:`, err))
 			.then(() => {
 				if (this._syncChainByProvider.get(providerId) === chain) {
@@ -194,8 +197,9 @@ export class ForgeLanguageModelBridge extends Disposable implements IForgeLangua
 		this._syncChainByProvider.set(providerId, chain);
 	}
 
-	private async _doSyncProvider(providerId: string): Promise<void> {
+	private async _doSyncProvider(providerId: string, generation: number): Promise<void> {
 		const { models } = await this._providerRegistryService.listModelsForProviderId(providerId);
+		if ((this._generationByProvider.get(providerId) ?? 0) !== generation || this._providerRegistryService.getHealth(providerId).status !== 'healthy') return;
 		const signature = models.map(m => m.id).join(' ');
 		if (models.length === 0) {
 			// zero models on a *healthy* probe still tears the provider down;
@@ -218,6 +222,10 @@ export class ForgeLanguageModelBridge extends Disposable implements IForgeLangua
 		this._registeredIdsByProvider.set(providerId, registeredIds);
 
 		for (const model of models) {
+			if ((this._generationByProvider.get(providerId) ?? 0) !== generation || this._providerRegistryService.getHealth(providerId).status !== 'healthy') {
+				this._teardownProvider(providerId);
+				return;
+			}
 			const identifier = safeModelId(providerId, model.id, registeredIds);
 
 			// Skip if already registered (race guard).
@@ -243,9 +251,11 @@ export class ForgeLanguageModelBridge extends Disposable implements IForgeLangua
 					isDefault: false,
 					isUserSelectable: true,
 					capabilities: {
-						toolCalling: caps.supportsTools,
-						agentMode: caps.supportsTools,
-						vision: caps.supportsVision,
+						// This bridge currently converts text only; do not advertise
+						// capabilities that its message/result adapter cannot preserve.
+						toolCalling: false,
+						agentMode: false,
+						vision: false,
 					},
 				},
 
